@@ -1,0 +1,782 @@
+load("@rules_objc//:objc.bzl", "objc_library")
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@rules_cc_autoconf//autoconf:defs.bzl", "autoconf", "autoconf_hdr")
+load(":sdl3_config_checks.bzl",
+    "SDL3_CONFIG_CHECKS_COMMON",
+    "SDL3_CONFIG_CHECKS_UNIX",
+    "SDL3_CONFIG_CHECKS_LINUX",
+    "SDL3_CONFIG_CHECKS_LINUX_X11",
+    "SDL3_CONFIG_CHECKS_LINUX_OPENGL",
+    "SDL3_CONFIG_CHECKS_LINUX_OPENGLES",
+    "SDL3_CONFIG_CHECKS_MACOS",
+    "SDL3_CONFIG_CHECKS_WINDOWS",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+# Configuration flags
+bool_flag(
+    name = "shared_memory",
+    build_setting_default = False,
+)
+
+bool_flag(
+    name = "opengl",
+    build_setting_default = False,
+)
+
+bool_flag(
+    name = "vulkan",
+    build_setting_default = True,
+)
+
+bool_flag(
+    name = "x11",
+    build_setting_default = True,
+)
+
+bool_flag(
+    name = "wayland",
+    build_setting_default = False,
+)
+
+bool_flag(
+    name = "alsa",
+    build_setting_default = False,
+)
+
+bool_flag(
+    name = "pulseaudio",
+    build_setting_default = False,
+)
+
+bool_flag(
+    name = "opengles",
+    build_setting_default = False,
+)
+
+bool_flag(
+    name = "camera",
+    build_setting_default = False,
+)
+
+# Platform config settings
+config_setting(
+    name = "shared_memory_disabled",
+    flag_values = {":shared_memory": "False"},
+)
+
+config_setting(
+    name = "opengl_enabled",
+    flag_values = {":opengl": "True"},
+)
+
+config_setting(
+    name = "linux",
+    constraint_values = ["@platforms//os:linux"],
+)
+
+config_setting(
+    name = "linux_opengl",
+    constraint_values = ["@platforms//os:linux"],
+    flag_values = {":opengl": "True"},
+)
+
+config_setting(
+    name = "linux_x11",
+    constraint_values = ["@platforms//os:linux"],
+    flag_values = {":x11": "True"},
+)
+
+config_setting(
+    name = "linux_alsa",
+    constraint_values = ["@platforms//os:linux"],
+    flag_values = {":alsa": "True"},
+)
+
+config_setting(
+    name = "linux_pulseaudio",
+    constraint_values = ["@platforms//os:linux"],
+    flag_values = {":pulseaudio": "True"},
+)
+
+config_setting(
+    name = "linux_camera",
+    constraint_values = ["@platforms//os:linux"],
+    flag_values = {":camera": "True"},
+)
+
+config_setting(
+    name = "linux_opengles",
+    constraint_values = ["@platforms//os:linux"],
+    flag_values = {":opengles": "True"},
+)
+
+config_setting(
+    name = "linux_arm",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:arm",
+    ],
+)
+
+config_setting(
+    name = "macos",
+    constraint_values = ["@platforms//os:macos"],
+)
+
+config_setting(
+    name = "windows",
+    constraint_values = ["@platforms//os:windows"],
+)
+
+# Autoconf targets for dynamic feature detection (native builds only)
+# For cross-compilation, use the predefined config headers
+autoconf(
+    name = "sdl3_linux_config",
+    checks = SDL3_CONFIG_CHECKS_LINUX,
+    target_compatible_with = ["@platforms//os:linux"],
+    visibility = ["//visibility:private"],
+)
+
+autoconf(
+    name = "sdl3_macos_config",
+    checks = SDL3_CONFIG_CHECKS_MACOS,
+    target_compatible_with = ["@platforms//os:macos"],
+    visibility = ["//visibility:private"],
+)
+
+autoconf(
+    name = "sdl3_windows_config",
+    checks = SDL3_CONFIG_CHECKS_WINDOWS,
+    target_compatible_with = ["@platforms//os:windows"],
+    visibility = ["//visibility:private"],
+)
+
+# Header libraries
+cc_library(
+    name = "sdl3_build_config",
+    hdrs = glob(["include/build_config/*.h"], exclude = [
+        "include/build_config/SDL_build_config.h.in",
+    ]),
+    includes = ["include/build_config"],
+    strip_include_prefix = "include",
+    visibility = ["//visibility:private"],
+)
+
+cc_library(
+    name = "sdl3_headers",
+    hdrs = glob(["include/SDL3/*.h"]),
+    deps = [
+        ":sdl3_build_config",
+    ],
+    strip_include_prefix = "include",
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "sdl3_khronos_headers",
+    hdrs = glob(["src/video/khronos/**/*.h"]),
+    strip_include_prefix = "src/video/khronos",
+    visibility = ["//visibility:private"],
+)
+
+cc_library(
+    name = "sdl3_private_headers",
+    hdrs = glob(["src/**/*.h"]),
+    includes = ["src"],
+    deps = [
+        ":sdl3_build_config",
+        ":sdl3_headers",
+        ":sdl3_khronos_headers",
+    ],
+    visibility = ["//visibility:private"],
+)
+
+# Common source files (platform-agnostic)
+COMMON_SRCS = glob([
+    "src/*.c",
+    "src/atomic/*.c",
+    "src/audio/*.c",
+    "src/audio/disk/*.c",
+    "src/audio/dummy/*.c",
+    "src/camera/*.c",
+    "src/camera/dummy/*.c",
+    "src/core/*.c",
+    "src/cpuinfo/*.c",
+    "src/dialog/*.c",
+    "src/dialog/dummy/*.c",
+    "src/dynapi/*.c",
+    "src/events/*.c",
+    "src/filesystem/*.c",
+    "src/gpu/*.c",
+    "src/haptic/*.c",
+    "src/hidapi/*.c",
+    "src/io/*.c",
+    "src/io/generic/*.c",
+    "src/joystick/*.c",
+    "src/joystick/controller_type.c",
+    "src/joystick/hidapi/*.c",
+    "src/libm/*.c",
+    "src/locale/*.c",
+    "src/main/*.c",
+    "src/main/generic/*.c",
+    "src/misc/*.c",
+    "src/misc/dummy/*.c",
+    "src/power/*.c",
+    "src/process/*.c",
+    "src/process/dummy/*.c",
+    "src/render/*.c",
+    "src/render/gpu/*.c",
+    "src/render/software/*.c",
+    "src/sensor/*.c",
+    "src/sensor/dummy/*.c",
+    "src/storage/*.c",
+    "src/storage/generic/*.c",
+    "src/stdlib/*.c",
+    "src/thread/*.c",
+    "src/time/*.c",
+    "src/timer/*.c",
+    "src/tray/*.c",
+    "src/tray/dummy/*.c",
+    "src/video/*.c",
+    "src/video/dummy/*.c",
+    "src/video/offscreen/*.c",
+    "src/video/yuv2rgb/*.c",
+])
+
+# Linux-specific sources (without X11 and OpenGL)
+LINUX_SRCS = glob([
+    "src/core/linux/*.c",
+    "src/core/unix/*.c",
+    "src/dialog/unix/*.c",
+    "src/filesystem/posix/*.c",
+    "src/filesystem/unix/*.c",
+    "src/haptic/linux/*.c",
+    "src/joystick/linux/*.c",
+    "src/joystick/virtual/*.c",
+    "src/loadso/dlopen/*.c",
+    "src/locale/unix/*.c",
+    "src/misc/unix/*.c",
+    "src/power/linux/*.c",
+    "src/process/posix/*.c",
+    "src/thread/pthread/*.c",
+    "src/time/unix/*.c",
+    "src/timer/unix/*.c",
+    "src/tray/unix/*.c",
+    "src/render/opengles2/*.c",
+    "src/gpu/vulkan/*.c",
+], exclude = [
+    "src/core/linux/SDL_dbus.c",
+    "src/core/linux/SDL_fcitx.c",
+    "src/core/linux/SDL_ibus.c",
+    "src/core/linux/SDL_ime.c",
+    "src/core/linux/SDL_udev.c",
+    "src/core/linux/SDL_system_theme.c",
+])
+
+# Linux X11 sources (conditional)
+LINUX_X11_SRCS = glob([
+    "src/video/x11/*.c",
+])
+
+# Linux OpenGL sources (conditional)
+LINUX_OPENGL_SRCS = glob([
+    "src/render/opengl/*.c",
+])
+
+LINUX_ALSA_SRCS = glob([
+    "src/audio/alsa/*.c",
+])
+
+LINUX_PULSEAUDIO_SRCS = glob([
+    "src/audio/pulseaudio/*.c",
+])
+
+LINUX_CAMERA_SRCS = glob([
+    "src/camera/v4l2/*.c",
+    "src/camera/pipewire/*.c",
+])
+
+# macOS-specific sources
+MACOS_SRCS = glob([
+    "src/core/unix/*.c",
+    "src/filesystem/posix/*.c",
+    "src/haptic/darwin/*.c",
+    "src/haptic/hidapi/*.c",
+    "src/joystick/darwin/*.c",
+    "src/joystick/virtual/*.c",
+    "src/loadso/dlopen/*.c",
+    "src/locale/unix/*.c",
+    "src/power/macos/*.c",
+    "src/process/posix/*.c",
+    "src/gpu/vulkan/*.c",
+    "src/render/opengles2/*.c",
+    "src/thread/pthread/*.c",
+    "src/time/unix/*.c",
+    "src/timer/unix/*.c",
+])
+
+# macOS Objective-C sources
+objc_library(
+    name = "SDL3_objc",
+    srcs = glob([
+        "src/audio/coreaudio/*.m",
+        "src/camera/coremedia/*.m",
+        "src/filesystem/cocoa/*.m",
+        "src/gpu/metal/*.m",
+        "src/joystick/apple/*.m",
+        "src/locale/macos/*.m",
+        "src/misc/macos/*.m",
+        "src/render/metal/*.m",
+        "src/tray/cocoa/*.m",
+        "src/video/cocoa/*.m",
+    ]),
+    deps = [
+        ":sdl3_headers",
+        ":sdl3_private_headers",
+    ],
+    visibility = ["//visibility:private"],
+)
+
+# Windows-specific sources
+WINDOWS_SRCS = glob([
+    "src/core/windows/*.c",
+    "src/audio/directsound/*.c",
+    "src/audio/wasapi/*.c",
+    "src/camera/mediafoundation/*.c",
+    "src/dialog/windows/*.c",
+    "src/filesystem/windows/*.c",
+    "src/gpu/d3d12/*.c",
+    "src/gpu/vulkan/*.c",
+    "src/haptic/windows/*.c",
+    "src/haptic/hidapi/*.c",
+    "src/io/windows/*.c",
+    "src/joystick/virtual/*.c",
+    "src/joystick/windows/*.c",
+    "src/loadso/windows/*.c",
+    "src/locale/windows/*.c",
+    "src/misc/windows/*.c",
+    "src/power/windows/*.c",
+    "src/process/windows/*.c",
+    "src/render/direct3d/*.c",
+    "src/render/direct3d11/*.c",
+    "src/render/direct3d12/*.c",
+    "src/render/opengl/*.c",
+    "src/render/opengles2/*.c",
+    "src/render/vulkan/*.c",
+    "src/sensor/windows/*.c",
+    "src/thread/windows/*.c",
+    "src/time/windows/*.c",
+    "src/timer/windows/*.c",
+    "src/tray/windows/*.c",
+    "src/video/windows/*.c",
+])
+
+# Windows C++ sources (GameInput requires C++)
+WINDOWS_CPP_SRCS = [
+    "src/core/windows/SDL_gameinput.cpp",
+    "src/joystick/gdk/SDL_gameinputjoystick.cpp",
+    "src/video/windows/SDL_windowsgameinput.cpp",
+]
+
+# Windows generic thread sources (compiled with _generic suffix for fallback)
+WINDOWS_GENERIC_THREAD_SRCS = [
+    "src/thread/generic/SDL_syscond.c",
+    "src/thread/generic/SDL_sysrwlock.c",
+]
+
+# SDL driver defines - these are used by SDL_internal.h to include correct headers
+# Common defines (available on all platforms)
+SDL_HAVE_DEFINES_COMMON = [
+    "HAVE_STDIO_H=1",
+    "HAVE_STDLIB_H=1",
+    "HAVE_STDARG_H=1",
+    "HAVE_STDDEF_H=1",
+    "HAVE_STDINT_H=1",
+    "HAVE_INTTYPES_H=1",
+    "HAVE_LIMITS_H=1",
+    "HAVE_STRING_H=1",
+    "HAVE_WCHAR_H=1",
+    "HAVE_MATH_H=1",
+    "HAVE_LIBC=1",
+    "HAVE_MALLOC=1",
+    "HAVE_CALLOC=1",
+    "HAVE_REALLOC=1",
+    "HAVE_FREE=1",
+    "HAVE_GETENV=1",
+    "HAVE_ABS=1",
+    "HAVE_MEMSET=1",
+    "HAVE_MEMCPY=1",
+    "HAVE_MEMMOVE=1",
+    "HAVE_MEMCMP=1",
+    "HAVE_STRLEN=1",
+    "HAVE_STRCHR=1",
+    "HAVE_STRRCHR=1",
+    "HAVE_STRSTR=1",
+    "HAVE_STRTOL=1",
+    "HAVE_STRTOUL=1",
+    "HAVE_STRTOLL=1",
+    "HAVE_STRTOULL=1",
+    "HAVE_STRTOD=1",
+    "HAVE_ATOI=1",
+    "HAVE_ATOF=1",
+    "HAVE_STRCMP=1",
+    "HAVE_STRNCMP=1",
+    "HAVE_VSSCANF=1",
+    "HAVE_VSNPRINTF=1",
+]
+
+# Unix-specific defines (Linux, macOS)
+SDL_HAVE_DEFINES_UNIX = [
+    "HAVE_STRINGS_H=1",
+    "HAVE_ALLOCA_H=1",
+    "HAVE_SIGNAL_H=1",
+    "HAVE_SYS_TYPES_H=1",
+    "HAVE_DLOPEN=1",
+    "HAVE_SETENV=1",
+    "HAVE_PUTENV=1",
+    "HAVE_UNSETENV=1",
+    "HAVE_GCC_ATOMICS=1",
+    "HAVE_NANOSLEEP=1",
+    "HAVE_CLOCK_GETTIME=1",
+    "HAVE_MPROTECT=1",
+    "HAVE_POLL=1",
+]
+
+# Windows-specific defines
+SDL_HAVE_DEFINES_WINDOWS = [
+    "HAVE_SIGNAL_H=1",
+    "HAVE_PUTENV=1",
+]
+
+# Main SDL3 library
+cc_library(
+    name = "SDL3Library",
+    srcs = COMMON_SRCS + select({
+        ":linux": LINUX_SRCS,
+        ":macos": MACOS_SRCS,
+        ":windows": WINDOWS_SRCS,
+        "//conditions:default": [],
+    }) + select({
+        ":linux_x11": LINUX_X11_SRCS,
+        "//conditions:default": [],
+    }) + select({
+        ":linux_opengl": LINUX_OPENGL_SRCS,
+        ":macos": LINUX_OPENGL_SRCS,
+        "//conditions:default": [],
+    }) + select({
+        ":linux_alsa": LINUX_ALSA_SRCS,
+        "//conditions:default": [],
+    }) + select({
+        ":linux_pulseaudio": LINUX_PULSEAUDIO_SRCS,
+        "//conditions:default": [],
+    }) + select({
+        ":linux_camera": LINUX_CAMERA_SRCS,
+        "//conditions:default": [],
+    }) + select({
+        ":windows": WINDOWS_CPP_SRCS,
+        "//conditions:default": [],
+    }) + select({
+        ":windows": WINDOWS_GENERIC_THREAD_SRCS,
+        "//conditions:default": [],
+    }),
+    local_defines = SDL_HAVE_DEFINES_COMMON + select({
+        ":linux": SDL_HAVE_DEFINES_UNIX,
+        ":macos": SDL_HAVE_DEFINES_UNIX,
+        ":windows": SDL_HAVE_DEFINES_WINDOWS,
+        "//conditions:default": [],
+    }) + select({
+        ":linux": [
+            "HAVE_LINUX_INPUT_H=1",
+            "HAVE_GETRESUID=1",
+            "HAVE_GETRESGID=1",
+            "SDL_AUDIO_DRIVER_DISK=1",
+            "SDL_AUDIO_DRIVER_DUMMY=1",
+            "SDL_CAMERA_DRIVER_DUMMY=1",
+            "SDL_DIALOG_DUMMY=1",
+            "SDL_FILESYSTEM_UNIX=1",
+            "SDL_FSOPS_POSIX=1",
+            "SDL_HAPTIC_LINUX=1",
+            "SDL_INPUT_LINUXEV=1",
+            "SDL_JOYSTICK_LINUX=1",
+            "SDL_LOADSO_DLOPEN=1",
+            "SDL_POWER_LINUX=1",
+            "SDL_PROCESS_POSIX=1",
+            "SDL_SENSOR_DUMMY=1",
+            "SDL_THREAD_PTHREAD=1",
+            "SDL_THREAD_PTHREAD_RECURSIVE_MUTEX=1",
+            "SDL_TIME_UNIX=1",
+            "SDL_TIMER_UNIX=1",
+            "SDL_VIDEO_DRIVER_DUMMY=1",
+            "SDL_VIDEO_DRIVER_OFFSCREEN=1",
+            "SDL_VIDEO_RENDER_OGL_ES2=1",
+            "SDL_VIDEO_OPENGL_ES2=1",
+            "SDL_VIDEO_OPENGL_EGL=1",
+        ],
+        ":linux_x11": [
+            # Base Linux defines
+            "HAVE_LINUX_INPUT_H=1",
+            "HAVE_GETRESUID=1",
+            "HAVE_GETRESGID=1",
+            "SDL_AUDIO_DRIVER_DISK=1",
+            "SDL_AUDIO_DRIVER_DUMMY=1",
+            "SDL_CAMERA_DRIVER_DUMMY=1",
+            "SDL_DIALOG_DUMMY=1",
+            "SDL_FILESYSTEM_UNIX=1",
+            "SDL_FSOPS_POSIX=1",
+            "SDL_HAPTIC_LINUX=1",
+            "SDL_INPUT_LINUXEV=1",
+            "SDL_JOYSTICK_LINUX=1",
+            "SDL_LOADSO_DLOPEN=1",
+            "SDL_POWER_LINUX=1",
+            "SDL_PROCESS_POSIX=1",
+            "SDL_SENSOR_DUMMY=1",
+            "SDL_THREAD_PTHREAD=1",
+            "SDL_THREAD_PTHREAD_RECURSIVE_MUTEX=1",
+            "SDL_TIME_UNIX=1",
+            "SDL_TIMER_UNIX=1",
+            "SDL_VIDEO_DRIVER_DUMMY=1",
+            "SDL_VIDEO_DRIVER_OFFSCREEN=1",
+            "SDL_VIDEO_RENDER_OGL_ES2=1",
+            "SDL_VIDEO_OPENGL_ES2=1",
+            "SDL_VIDEO_OPENGL_EGL=1",
+            # X11-specific defines
+            "SDL_VIDEO_DRIVER_X11=1",
+            "SDL_VIDEO_DRIVER_X11_SUPPORTS_GENERIC_EVENTS=1",
+            "SDL_VIDEO_DRIVER_X11_XCURSOR=1",
+            "SDL_VIDEO_DRIVER_X11_XINPUT2=1",
+            "SDL_VIDEO_DRIVER_X11_XINPUT2_SUPPORTS_MULTITOUCH=1",
+            "SDL_VIDEO_DRIVER_X11_XINPUT2_SUPPORTS_SCROLLINFO=1",
+            "SDL_VIDEO_DRIVER_X11_XFIXES=1",
+            "SDL_VIDEO_DRIVER_X11_XRANDR=1",
+            "SDL_VIDEO_DRIVER_X11_XSHAPE=1",
+        ],
+        ":macos": [
+            "SDL_AUDIO_DRIVER_COREAUDIO=1",
+            "SDL_AUDIO_DRIVER_DISK=1",
+            "SDL_AUDIO_DRIVER_DUMMY=1",
+            "SDL_CAMERA_DRIVER_COREMEDIA=1",
+            "SDL_CAMERA_DRIVER_DUMMY=1",
+            "SDL_DIALOG_DUMMY=1",
+            "SDL_FILESYSTEM_COCOA=1",
+            "SDL_FSOPS_POSIX=1",
+            "SDL_HAPTIC_IOKIT=1",
+            "SDL_JOYSTICK_HIDAPI=1",
+            "SDL_JOYSTICK_IOKIT=1",
+            "SDL_JOYSTICK_MFI=1",
+            "SDL_JOYSTICK_VIRTUAL=1",
+            "SDL_LOADSO_DLOPEN=1",
+            "SDL_POWER_MACOSX=1",
+            "SDL_PROCESS_POSIX=1",
+            "SDL_SENSOR_DUMMY=1",
+            "SDL_THREAD_PTHREAD=1",
+            "SDL_THREAD_PTHREAD_RECURSIVE_MUTEX=1",
+            "SDL_TIME_UNIX=1",
+            "SDL_TIMER_UNIX=1",
+            "SDL_VIDEO_DRIVER_COCOA=1",
+            "SDL_VIDEO_DRIVER_DUMMY=1",
+            "SDL_VIDEO_DRIVER_OFFSCREEN=1",
+            "SDL_VIDEO_RENDER_METAL=1",
+            "SDL_VIDEO_METAL=1",
+            "SDL_GPU_METAL=1",
+            "SDL_VIDEO_VULKAN=1",
+            "SDL_GPU_VULKAN=1",
+            "SDL_VIDEO_RENDER_GPU=1",
+            "SDL_VIDEO_OPENGL=1",
+            "SDL_VIDEO_OPENGL_ES2=1",
+            "SDL_VIDEO_OPENGL_EGL=1",
+            "SDL_VIDEO_OPENGL_CGL=1",
+            "SDL_VIDEO_OPENGL_GLX=1",
+            "SDL_VIDEO_RENDER_OGL=1",
+            "SDL_VIDEO_RENDER_OGL_ES2=1",
+        ],
+        ":windows": [
+            "SDL_AUDIO_DRIVER_DSOUND=1",
+            "SDL_AUDIO_DRIVER_WASAPI=1",
+            "SDL_AUDIO_DRIVER_DISK=1",
+            "SDL_AUDIO_DRIVER_DUMMY=1",
+            "SDL_CAMERA_DRIVER_MEDIAFOUNDATION=1",
+            "SDL_CAMERA_DRIVER_DUMMY=1",
+            "SDL_FILESYSTEM_WINDOWS=1",
+            "SDL_FSOPS_WINDOWS=1",
+            "SDL_GPU_D3D11=1",
+            "SDL_GPU_D3D12=1",
+            "SDL_GPU_VULKAN=1",
+            "SDL_HAPTIC_DINPUT=1",
+            "SDL_HAPTIC_HIDAPI=1",
+            "SDL_JOYSTICK_DINPUT=1",
+            "SDL_JOYSTICK_HIDAPI=1",
+            "SDL_JOYSTICK_RAWINPUT=1",
+            "SDL_JOYSTICK_VIRTUAL=1",
+            "SDL_JOYSTICK_XINPUT=1",
+            "SDL_JOYSTICK_GAMEINPUT=1",
+            "SDL_LOADSO_WINDOWS=1",
+            "SDL_POWER_WINDOWS=1",
+            "SDL_PROCESS_WINDOWS=1",
+            "SDL_SENSOR_WINDOWS=1",
+            "SDL_THREAD_WINDOWS=1",
+            "SDL_THREAD_GENERIC_COND_SUFFIX=1",
+            "SDL_THREAD_GENERIC_RWLOCK_SUFFIX=1",
+            "SDL_TIME_WINDOWS=1",
+            "SDL_TIMER_WINDOWS=1",
+            "SDL_VIDEO_DRIVER_DUMMY=1",
+            "SDL_VIDEO_DRIVER_OFFSCREEN=1",
+            "SDL_VIDEO_DRIVER_WINDOWS=1",
+            "SDL_VIDEO_RENDER_D3D=1",
+            "SDL_VIDEO_RENDER_D3D11=1",
+            "SDL_VIDEO_RENDER_D3D12=1",
+            "SDL_VIDEO_RENDER_OGL=1",
+            "SDL_VIDEO_RENDER_OGL_ES2=1",
+            "SDL_VIDEO_RENDER_GPU=1",
+            "SDL_VIDEO_RENDER_VULKAN=1",
+            "SDL_VIDEO_OPENGL=1",
+            "SDL_VIDEO_OPENGL_WGL=1",
+            "SDL_VIDEO_OPENGL_ES2=1",
+            "SDL_VIDEO_OPENGL_EGL=1",
+            "SDL_VIDEO_VULKAN=1",
+        ],
+        "//conditions:default": [],
+    }) + select({
+        ":linux_opengl": [
+            "SDL_VIDEO_RENDER_OGL=1",
+            "SDL_VIDEO_OPENGL=1",
+            "SDL_VIDEO_OPENGL_GLX=1",
+        ],
+        "//conditions:default": [],
+    }) + select({
+        ":linux_opengles": [
+            "SDL_VIDEO_RENDER_OGL_ES2=1",
+            "SDL_VIDEO_OPENGL_ES2=1",
+            "SDL_VIDEO_OPENGL_EGL=1",
+        ],
+        "//conditions:default": [],
+    }) + select({
+        ":linux_alsa": [
+            "SDL_AUDIO_DRIVER_ALSA=1",
+        ],
+        "//conditions:default": [],
+    }) + select({
+        ":linux_pulseaudio": [
+            "SDL_AUDIO_DRIVER_PULSEAUDIO=1",
+        ],
+        "//conditions:default": [],
+    }) + select({
+        ":linux_camera": [
+            "SDL_CAMERA_DRIVER_V4L2=1",
+            "SDL_CAMERA_DRIVER_PIPEWIRE=1",
+        ],
+        "//conditions:default": [],
+    }) + select({
+        ":shared_memory_disabled": ["NO_SHARED_MEMORY=1"],
+        "//conditions:default": [],
+    }) + select({
+        # Disable NEON for ARM Linux (uclibc lacks fenv.h)
+        ":linux_arm": ["SDL_DISABLE_NEON=1"],
+        "//conditions:default": [],
+    }),
+    textual_hdrs = [
+        "src/thread/generic/SDL_syssem.c",
+        "src/hidapi/mac/hid.c",
+        "src/hidapi/linux/hid.c",
+        "src/hidapi/windows/hid.c",
+        "src/hidapi/windows/hidapi_descriptor_reconstruct.c",
+    ],
+    deps = [
+        ":sdl3_headers",
+    ],
+    implementation_deps = [
+        ":sdl3_private_headers",
+    ] + select({
+        ":macos": [":SDL3_objc"],
+        ":linux_x11": [
+            "@libx11//:libx11",
+            "@libxext//:libxext",
+            "@libxcursor//:libxcursor",
+            "@libxrandr//:libxrandr",
+            "@libxi//:libxi",
+            "@libxfixes//:libxfixes",
+            "@libxrender//:libxrender",
+        ],
+        "//conditions:default": [],
+    }),
+    linkopts = select({
+        ":linux": [
+            "-lpthread",
+            "-ldl",
+            "-lm",
+            "-lrt",
+        ],
+        ":macos": [
+            "-liconv",
+            "-framework CoreFoundation",
+            "-framework Foundation",
+            "-framework CoreAudio",
+            "-framework AudioToolbox",
+            "-framework AppKit",
+            "-framework CoreVideo",
+            "-framework IOKit",
+            "-framework Metal",
+            "-framework QuartzCore",
+            "-framework GameController",
+            "-framework CoreGraphics",
+            "-framework ForceFeedback",
+            "-framework Carbon",
+            "-weak_framework CoreHaptics",
+            "-framework AVFoundation",
+            "-framework CoreMedia",
+        ],
+        ":windows": [
+            "user32.lib",
+            "gdi32.lib",
+            "winmm.lib",
+            "imm32.lib",
+            "ole32.lib",
+            "oleaut32.lib",
+            "version.lib",
+            "uuid.lib",
+            "advapi32.lib",
+            "setupapi.lib",
+            "shell32.lib",
+            "dxguid.lib",
+            "dinput8.lib",
+            "cfgmgr32.lib",
+        ],
+        "//conditions:default": [],
+    }) + select({
+        ":linux_opengl": ["-lGL"],
+        ":macos": ["-framework OpenGL"],
+        "//conditions:default": [],
+    }),
+)
+
+# SDL3 main library with platform-specific entry point
+cc_library(
+    name = "sdl3",
+    srcs = select({
+        ":windows": ["src/main/windows/SDL_sysmain_runapp.c"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        ":SDL3Library",
+        ":sdl3_private_headers",
+    ],
+)
+
+# Alias for convenience
+alias(
+    name = "SDL3",
+    actual = ":sdl3",
+)
+
+# SDL3_test library for test utilities
+cc_library(
+    name = "SDL3_test",
+    srcs = glob(["src/test/*.c"]),
+    deps = [
+        ":sdl3_headers",
+        ":sdl3_private_headers",
+    ],
+    visibility = ["//visibility:public"],
+)

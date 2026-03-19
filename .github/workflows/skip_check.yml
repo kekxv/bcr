@@ -1,0 +1,61 @@
+name: Skip Check Handler
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  handle-skip-check:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '@bcr skip_check')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Parse skip check command
+        id: parse
+        run: |
+          COMMENT="${{ github.event.comment.body }}"
+          # Parse: @bcr skip_check <check-name>
+          CHECK=$(echo "$COMMENT" | sed -n 's/@bcr skip_check *\(.*\)/\1/p' | xargs)
+          echo "check=$CHECK" >> $GITHUB_OUTPUT
+          echo "Skipping check: $CHECK"
+
+      - name: Validate check name
+        run: |
+          CHECK="${{ steps.parse.outputs.check }}"
+          VALID_CHECKS="url-stability-check module-dot-bazel-check presubmit-yaml-check attestations-check source-integrity-check"
+          if [[ ! " $VALID_CHECKS " =~ " $CHECK " ]]; then
+            echo "Invalid check name: $CHECK"
+            echo "Valid checks: $VALID_CHECKS"
+            exit 1
+          fi
+
+      - name: Store skip check
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const check = '${{ steps.parse.outputs.check }}';
+            const prNumber = context.issue.number;
+
+            // Create a label to indicate the skip
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: [`skip-${check}`]
+            });
+
+            // Reply to the comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `✅ **Skip check requested**: \`${check}\` will be skipped for this PR.`
+            });
