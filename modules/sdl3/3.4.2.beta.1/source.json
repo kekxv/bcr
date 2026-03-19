@@ -3,9 +3,9 @@
   "integrity": "sha256-7zmi4/mop4KWxA2nAZZ90bDQ1uJn5IOGPOcPigO0BQw=",
   "strip_prefix": "SDL3-3.4.2",
   "overlay": {
-    "BUILD.bazel": "sha256-3u2JX8iF8iKlrVv7fu/It0+iSyHaPhdDcyWiptYZcbk=",
-    "MODULE.bazel": "sha256-EzaRp2+xydrWyPqRrcYMmfCnVrxlnfb++11SRoOw2CQ=",
-    "sdl3_config_checks.bzl": "sha256-+yaI7ur2YgzOVdaBr/Nmzw0M43rwYa49U4ee00ztWtM="
+    "BUILD.bazel": "sha256-Qo4nF9R2aOKckMIlyvWz/u86DWV7Ggxga75TjvNbQ98=",
+    "MODULE.bazel": "sha256-HGd9YM2NE9pmu1eZIRgTeGHFXaz+lJAThVNPbfNHcAM=",
+    "sdl3_config_checks.bzl": "sha256-bgUZmge4F3Ntg4mdRt9bnL4F0uH8CXLZHSZ6VYvgpV4="
   },
   "patches": {
     "changes.patch": "sha256-q8Qz8QuY4pGEmEewWojc0LjZLtKQcxHmfNGTnI45D2g="
