@@ -8,7 +8,7 @@
     "sdl3_config_checks.bzl": "sha256-bgUZmge4F3Ntg4mdRt9bnL4F0uH8CXLZHSZ6VYvgpV4="
   },
   "patches": {
-    "changes.patch": "sha256-q8Qz8QuY4pGEmEewWojc0LjZLtKQcxHmfNGTnI45D2g="
+    "changes.patch": "sha256-xy4rsRsBrJZopr80F643KIqFo9KrBCMNmj3CJCWRHFU="
   },
   "patch_strip": 0
 }
