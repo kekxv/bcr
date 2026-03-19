@@ -88,6 +88,11 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: '0.4.x'
+
       - name: Setup Bazel
         uses: bazel-contrib/setup-bazel@0.8.5
         with:

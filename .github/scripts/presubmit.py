@@ -64,35 +64,70 @@ class PresubmitChecker:
         self.errors: List[str] = []
         self.warnings: List[str] = []
 
-    def detect_new_versions(self) -> List[Tuple[str, Optional[str]]]:
+    def detect_changed_modules(self) -> List[Tuple[str, Optional[str], str]]:
         """
-        Detect new versions by comparing filesystem with metadata.json.
-        Returns list of (module_name, version) tuples for versions that exist
-        in the filesystem but are not yet listed in metadata.json.
+        Detect changed modules by git diff.
+        Returns list of (module_name, version, change_type) tuples.
+        change_type can be: 'new', 'modified', 'deleted'
         """
-        changes: List[Tuple[str, Optional[str]]] = []
+        changes: List[Tuple[str, Optional[str], str]] = []
 
-        for module_dir in self.registry.modules_path.iterdir():
-            if not module_dir.is_dir():
-                continue
+        try:
+            # Get changed files in modules/ directory
+            result = subprocess.run(
+                ['git', 'diff', '--name-status', 'origin/main', '--', 'modules/'],
+                capture_output=True, text=True, check=True
+            )
 
-            module_name = module_dir.name
-            metadata = self.registry.get_metadata(module_name)
-            existing_versions = set(metadata.get('versions', [])) if metadata else set()
+            for line in result.stdout.strip().split('\n'):
+                if not line:
+                    continue
 
-            # Check if this is a new module (no metadata)
-            if metadata is None:
-                changes.append((module_name, None))
-                continue
+                parts = line.split('\t')
+                if len(parts) < 2:
+                    continue
 
-            # Find new versions
-            for item in module_dir.iterdir():
-                if item.is_dir() and (item / "source.json").exists():
-                    version = item.name
-                    if version not in existing_versions:
-                        changes.append((module_name, version))
+                status = parts[0][0]  # A=Added, M=Modified, D=Deleted, R=Renamed
+                file_path = parts[-1]
 
-        return changes
+                # Parse path: modules/<name>/<version>/file
+                path_parts = file_path.split('/')
+                if len(path_parts) >= 3:
+                    module_name = path_parts[1]
+                    version = path_parts[2] if len(path_parts) >= 3 else None
+
+                    # Skip if not a version directory
+                    if version in ['metadata.json', 'README.md']:
+                        version = None
+
+                    change_type = 'new' if status == 'A' else 'modified' if status == 'M' else 'deleted'
+                    changes.append((module_name, version, change_type))
+
+            # Also check for new modules (metadata.json added)
+            for line in result.stdout.strip().split('\n'):
+                if not line:
+                    continue
+                parts = line.split('\t')
+                if len(parts) >= 2 and parts[0][0] == 'A' and parts[-1].endswith('metadata.json'):
+                    module_name = parts[-1].split('/')[1]
+                    changes.append((module_name, None, 'new'))
+
+        except subprocess.CalledProcessError:
+            # Fall back to detect_new_versions if git diff fails
+            print(f"{Colors.YELLOW}Warning: Could not get git diff, falling back to metadata comparison{Colors.RESET}")
+            for module_name, version in self.detect_new_versions():
+                changes.append((module_name, version, 'new'))
+
+        # Remove duplicates
+        seen = set()
+        unique_changes = []
+        for module_name, version, change_type in changes:
+            key = (module_name, version)
+            if key not in seen:
+                seen.add(key)
+                unique_changes.append((module_name, version, change_type))
+
+        return unique_changes
 
     def check_json_yaml_format(self, module_name: str, version: Optional[str]) -> List[CheckResult]:
         """Validate JSON and YAML file formats."""
@@ -323,6 +358,19 @@ class PresubmitChecker:
         else:
             results.append(CheckResult("module-bazel/name", False, "Could not parse module name"))
 
+        # Check version matches
+        version_match = re.search(r'module\([^)]*version\s*=\s*"([^"]+)"', module_content, re.DOTALL)
+        if version_match:
+            declared_version = version_match.group(1)
+            if declared_version != version:
+                results.append(CheckResult(
+                    "module-bazel/version",
+                    False,
+                    f"Module version mismatch: declared '{declared_version}', expected '{version}' (directory name)"
+                ))
+        else:
+            results.append(CheckResult("module-bazel/version", False, "Could not parse module version"))
+
         if not results:
             results.append(CheckResult("module-bazel", True, "Valid"))
 
@@ -403,7 +451,7 @@ class PresubmitChecker:
 
         return results
 
-    def run_checks(self, module_name: str, version: Optional[str]) -> List[CheckResult]:
+    def run_checks(self, module_name: str, version: Optional[str], change_type: str = 'new') -> List[CheckResult]:
         """Run all checks for a module/version."""
         results = []
 
@@ -415,6 +463,7 @@ class PresubmitChecker:
 
         if version:
             # Version-specific checks
+            # Run source integrity check for both new and modified versions
             if 'source-integrity-check' not in self.skip_checks:
                 results.extend(self.check_source_integrity(module_name, version))
 
@@ -471,28 +520,33 @@ class PresubmitChecker:
         return report
 
     def run(self, pr_number: Optional[str] = None):
-        """Run all presubmit checks on new versions."""
+        """Run all presubmit checks on changed modules."""
         print(f"{Colors.BLUE}Running presubmit checks...{Colors.RESET}")
         if self.skip_checks:
             print(f"  Skipping: {', '.join(self.skip_checks)}")
         print()
 
-        changes = self.detect_new_versions()
+        changes = self.detect_changed_modules()
 
         if not changes:
-            print(f"{Colors.YELLOW}No new module versions detected.{Colors.RESET}")
-            print(f"Add a new version by creating modules/<name>/<version>/source.json")
+            print(f"{Colors.YELLOW}No changed modules detected.{Colors.RESET}")
             return 0
 
-        print(f"Detected {len(changes)} new version(s):\n")
+        print(f"Detected {len(changes)} changed module(s):\n")
 
         exit_code = 0
 
-        for module_name, version in changes:
+        for module_name, version, change_type in changes:
             version_str = f"@{version}" if version else ""
-            print(f"{Colors.BLUE}Checking {module_name}{version_str}...{Colors.RESET}")
+            change_indicator = "[NEW]" if change_type == 'new' else "[MODIFIED]" if change_type == 'modified' else "[DELETED]"
+            print(f"{Colors.BLUE}Checking {module_name}{version_str} {change_indicator}...{Colors.RESET}")
 
-            results = self.run_checks(module_name, version)
+            # Skip deleted versions
+            if change_type == 'deleted':
+                print(f"  {Colors.YELLOW}Skipping checks for deleted version{Colors.RESET}")
+                continue
+
+            results = self.run_checks(module_name, version, change_type)
 
             # Store results
             if module_name not in self.results:
