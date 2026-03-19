@@ -12,16 +12,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  presubmit:
+  validate:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
+    outputs:
+      has_changes: ${{ steps.detect.outputs.has_changes }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history needed for change detection
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -71,3 +73,70 @@ jobs:
                 body: body
               });
             }
+
+  # Bazel build test - runs on Ubuntu only to save minutes
+  bazel-test:
+    runs-on: ubuntu-latest
+    needs: validate
+    if: ${{ needs.validate.outputs.has_changes == 'true' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Bazel
+        uses: bazel-contrib/setup-bazel@0.8.5
+        with:
+          bazelisk-version: '1.20.0'
+
+      - name: Detect changed modules
+        id: detect
+        run: |
+          python .github/scripts/detect_changes.py --output changes.json
+          echo "modules=$(cat changes.json | jq -r '.new_versions | keys | @json')" >> $GITHUB_OUTPUT
+
+      - name: Run Bazel build tests
+        run: |
+          MODULES='${{ steps.detect.outputs.modules }}'
+          if [ "$MODULES" = "[]" ] || [ -z "$MODULES" ]; then
+            echo "No new modules to test"
+            exit 0
+          fi
+
+          # Test each changed module
+          echo "$MODULES" | jq -r '.[]' | while read module; do
+            VERSIONS=$(cat changes.json | jq -r ".new_versions[\"$module\"] | .[]")
+            echo "Testing module: $module"
+
+            for version in $VERSIONS; do
+              echo "  Building $module@$version..."
+
+              # Create a temporary test workspace
+              TEST_DIR=$(mktemp -d)
+              cat > "$TEST_DIR/MODULE.bazel" << EOF
+bazel_dep(name = "$module", version = "$version")
+EOF
+              cat > "$TEST_DIR/BUILD.bazel" << EOF
+filegroup(name = "dummy", srcs = [])
+EOF
+
+              # Use this registry
+              cd "$TEST_DIR"
+              bazel build //... \
+                --registry=file://$GITHUB_WORKSPACE \
+                --enable_bzlmod \
+                --nocheck_direct_dependencies || {
+                echo "Failed to build $module@$version"
+                exit 1
+              }
+
+              cd "$GITHUB_WORKSPACE"
+              rm -rf "$TEST_DIR"
+            done
+          done
+        env:
+          USE_BAZEL_VERSION: '7.x'

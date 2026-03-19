@@ -503,7 +503,8 @@
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
                         Quick Start
                     </div>
-                    <button class="copy-btn" data-copy="--registry={{REGISTRY_URL}}">
+                    <button class="copy-btn" data-copy="common --registry={{REGISTRY_URL}}
+common --registry=https://bcr.bazel.build  # default bcr">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                         Copy
                     </button>
@@ -511,8 +512,9 @@
                 <div class="usage-code">
                     <span class="comment"># In your MODULE.bazel</span><br>
                     <span class="keyword">bazel_dep</span>(<span class="string">name</span> = <span class="string">"module_name"</span>, <span class="string">version</span> = <span class="string">"1.0.0"</span>)<br><br>
-                    <span class="comment"># Or use this registry</span><br>
-                    <span class="flag">bazel build</span> <span class="comment">--registry={{REGISTRY_URL}} //...</span>
+                    <span class="comment"># Add to your .bazelrc</span><br>
+                    <span class="flag">common</span> <span class="comment">--registry={{REGISTRY_URL}}</span><br>
+                    <span class="flag">common</span> <span class="comment">--registry=https://bcr.bazel.build  # default bcr</span>
                 </div>
             </div>
         </section>
