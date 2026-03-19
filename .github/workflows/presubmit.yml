@@ -2,18 +2,115 @@ name: Presubmit Checks
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     paths:
       - 'modules/**'
       - '.github/scripts/**'
       - '.github/workflows/presubmit.yml'
+  workflow_dispatch:  # 允许手动触发
+
+# 定义标签常量
+env:
+  TRIGGER_LABEL: 'run-presubmit'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
+  # 检查标签的任务
+  check-label:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      has_trigger_label: ${{ steps.check.outputs.has_trigger_label }}
+    steps:
+      - name: Check for trigger label
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const triggerLabel = process.env.TRIGGER_LABEL;
+            const labels = context.payload.pull_request.labels.map(l => l.name);
+            const hasLabel = labels.includes(triggerLabel);
+            core.setOutput('has_trigger_label', hasLabel.toString());
+            console.log(`Labels: ${labels.join(', ')}`);
+            console.log(`Has '${triggerLabel}' label: ${hasLabel}`);
+
+      - name: Comment if no trigger label
+        if: steps.check.outputs.has_trigger_label == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const triggerLabel = process.env.TRIGGER_LABEL;
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+
+            const marker = '<!-- presubmit-label-check -->';
+            const existingComment = comments.find(c => c.body && c.body.includes(marker));
+
+            const body = `${marker}
+            ## ⏳ Presubmit Checks Waiting
+
+            This PR modifies BCR modules but presubmit checks have **not** been triggered yet.
+
+            To run the presubmit checks, add the \`${triggerLabel}\` label to this PR.
+
+            **How to add the label:**
+            1. Click the "Labels" section on the right sidebar
+            2. Select \`${triggerLabel}\`
+
+            The checks will run automatically once the label is added.
+            `;
+
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                comment_id: existingComment.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            }
+
+      - name: Remove waiting comment if label exists
+        if: steps.check.outputs.has_trigger_label == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- presubmit-label-check -->';
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+
+            const existingComment = comments.find(c => c.body && c.body.includes(marker));
+            if (existingComment) {
+              await github.rest.issues.deleteComment({
+                comment_id: existingComment.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+              console.log('Removed waiting comment');
+            }
+
+  # 主验证任务 - 只有带有标签时才运行
   validate:
     runs-on: ubuntu-latest
+    needs: check-label
+    if: ${{ needs.check-label.outputs.has_trigger_label == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -74,11 +171,11 @@ jobs:
               });
             }
 
-  # Bazel build test - runs on Ubuntu only to save minutes
+  # Bazel build test - 只有带有标签时才运行
   bazel-test:
     runs-on: ubuntu-latest
-    needs: validate
-    if: ${{ needs.validate.outputs.has_changes == 'true' }}
+    needs: [check-label, validate]
+    if: ${{ needs.check-label.outputs.has_trigger_label == 'true' && needs.validate.outputs.has_changes == 'true' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -87,11 +184,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: '0.4.x'
 
       - name: Setup Bazel
         uses: bazel-contrib/setup-bazel@0.8.5
