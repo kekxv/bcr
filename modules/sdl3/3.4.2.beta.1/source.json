@@ -7,5 +7,8 @@
     "MODULE.bazel": "sha256-EzaRp2+xydrWyPqRrcYMmfCnVrxlnfb++11SRoOw2CQ=",
     "sdl3_config_checks.bzl": "sha256-+yaI7ur2YgzOVdaBr/Nmzw0M43rwYa49U4ee00ztWtM="
   },
+  "patches": {
+    "changes.patch": "sha256-q8Qz8QuY4pGEmEewWojc0LjZLtKQcxHmfNGTnI45D2g="
+  },
   "patch_strip": 0
 }
