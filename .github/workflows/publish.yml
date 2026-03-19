@@ -1,27 +1,23 @@
-name: Publish Registry
+name: Publish Registry to gh-pages
 
 on:
   push:
     branches: [main, master]
     paths:
       - 'modules/**'
-      - 'bazel_registry.json'
-      - 'index.html'
+      - '.github/scripts/**'
 
 permissions:
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
+  contents: write
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -32,25 +28,17 @@ jobs:
         run: |
           pip install pyyaml requests
 
-      - name: Generate registry index
+      - name: Generate registry files
         run: |
           python .github/scripts/publish.py
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          path: './'
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./
+          publish_branch: gh-pages
+          force_orphan: true
+          exclude_assets: '.github,modules,.gitignore,.venv,**/.DS_Store'

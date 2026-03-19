@@ -45,5 +45,9 @@ ENV/
 .bazelrc.user
 bazel-*
 
+# Generated registry files (built by GitHub Actions)
+bazel_registry.json
+index.html
+
 # OS
 Thumbs.db
