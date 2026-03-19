@@ -232,6 +232,7 @@ class PresubmitChecker:
 
         url = source.get('url')
         expected_integrity = source.get('integrity')
+        strip_prefix = source.get('strip_prefix', '')
 
         if not url:
             return [CheckResult("source/url", False, "URL not specified")]
@@ -277,7 +278,6 @@ class PresubmitChecker:
                     sha256.update(chunk)
 
             actual_hash = sha256.hexdigest()
-            os.unlink(tmp_path)
 
             if actual_hash == expected_hash:
                 results.append(CheckResult("source/integrity", True, "Integrity verified"))
@@ -289,10 +289,73 @@ class PresubmitChecker:
                     fixable=True
                 ))
 
+            # Verify strip_prefix if specified
+            if strip_prefix:
+                strip_prefix_result = self._verify_strip_prefix(tmp_path, url, strip_prefix)
+                results.append(strip_prefix_result)
+
+            os.unlink(tmp_path)
+
         except Exception as e:
             results.append(CheckResult("source/download", False, f"Failed to download: {e}"))
 
         return results
+
+    def _verify_strip_prefix(self, archive_path: str, url: str, strip_prefix: str) -> CheckResult:
+        """Verify that the strip_prefix matches the archive structure."""
+        try:
+            # Determine archive type from URL
+            if url.endswith('.tar.gz') or url.endswith('.tgz'):
+                extractor = tarfile.open(archive_path, 'r:gz')
+                file_list = extractor.getnames()
+            elif url.endswith('.tar.bz2'):
+                extractor = tarfile.open(archive_path, 'r:bz2')
+                file_list = extractor.getnames()
+            elif url.endswith('.tar.xz'):
+                extractor = tarfile.open(archive_path, 'r:xz')
+                file_list = extractor.getnames()
+            elif url.endswith('.zip'):
+                extractor = zipfile.ZipFile(archive_path, 'r')
+                file_list = extractor.namelist()
+            else:
+                return CheckResult("source/strip_prefix", True, f"Unknown archive type, cannot verify strip_prefix")
+
+            # Get the top-level directory of each file
+            top_dirs = set()
+            for name in file_list:
+                # Skip directories (end with /)
+                if name.endswith('/'):
+                    continue
+                parts = name.split('/')
+                if len(parts) > 1:
+                    top_dirs.add(parts[0])
+
+            if not top_dirs:
+                return CheckResult("source/strip_prefix", False, f"No top-level directory found in archive")
+
+            # Check if strip_prefix matches the top-level directory
+            if len(top_dirs) == 1:
+                actual_prefix = list(top_dirs)[0]
+                if actual_prefix == strip_prefix:
+                    return CheckResult("source/strip_prefix", True, f"strip_prefix '{strip_prefix}' verified")
+                else:
+                    return CheckResult(
+                        "source/strip_prefix",
+                        False,
+                        f"strip_prefix mismatch: configured '{strip_prefix}', but archive contains '{actual_prefix}'",
+                        fixable=True
+                    )
+            else:
+                # Multiple top-level items
+                return CheckResult(
+                    "source/strip_prefix",
+                    False,
+                    f"strip_prefix '{strip_prefix}' specified but archive has multiple top-level items: {sorted(top_dirs)}",
+                    fixable=True
+                )
+
+        except Exception as e:
+            return CheckResult("source/strip_prefix", False, f"Failed to verify strip_prefix: {e}")
 
     def check_url_stability(self, module_name: str, version: str) -> List[CheckResult]:
         """Check if URL is a stable release archive."""

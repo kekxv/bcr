@@ -36,7 +36,7 @@ jobs:
             exit 1
           fi
 
-      - name: Store skip check
+      - name: Add skip label
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -52,10 +52,10 @@ jobs:
               labels: [`skip-${check}`]
             });
 
-            // Reply to the comment
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              body: `✅ **Skip check requested**: \`${check}\` will be skipped for this PR.`
-            });
+            console.log(`✅ Skip check requested: ${check}`);
+            console.log(`Label 'skip-${check}' added to PR #${prNumber}`);
+
+      - name: Log skip action
+        run: |
+          echo "✅ Skip check requested: ${{ steps.parse.outputs.check }}"
+          echo "Label 'skip-${{ steps.parse.outputs.check }}' added to PR #${{ github.event.issue.number }}"

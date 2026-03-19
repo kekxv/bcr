@@ -3,6 +3,7 @@
 Run Bazel tests according to presubmit.yml configuration.
 """
 
+import argparse
 import json
 import yaml
 import subprocess
@@ -10,7 +11,38 @@ import sys
 from pathlib import Path
 
 
-def run_bazel_tests(registry_path: Path = Path('.')):
+def parse_args():
+    parser = argparse.ArgumentParser(description='Run Bazel tests for BCR modules')
+    parser.add_argument('--platform', required=True, help='Platform name (e.g., ubuntu2404, macos, windows, linux_arm64)')
+    return parser.parse_args()
+
+
+def get_github_runner_platform(platform_name: str) -> str:
+    """Map presubmit platform to GitHub Actions runner OS."""
+    mapping = {
+        'ubuntu2404': 'linux',
+        'ubuntu2004': 'linux',
+        'ubuntu2204': 'linux',
+        'macos': 'macos',
+        'macos_arm64': 'macos',
+        'windows': 'windows',
+        'linux_arm64': 'linux',
+    }
+    return mapping.get(platform_name, platform_name)
+
+
+def should_run_for_platform(presubmit_platforms: list, current_platform: str) -> bool:
+    """Check if current platform matches any of the presubmit platforms."""
+    current_runner = get_github_runner_platform(current_platform)
+
+    for p in presubmit_platforms:
+        runner = get_github_runner_platform(p)
+        if runner == current_runner:
+            return True
+    return False
+
+
+def run_bazel_tests(platform: str, registry_path: Path = Path('.')):
     """Run bazel tests according to presubmit.yml for changed modules."""
 
     # Read detected changes
@@ -22,17 +54,19 @@ def run_bazel_tests(registry_path: Path = Path('.')):
         return 0
 
     failed = []
+    skipped = []
 
     for module_name, versions in changes['new_versions'].items():
         for version in versions:
             print(f"\n{'='*60}")
-            print(f"Testing {module_name}@{version}")
+            print(f"Testing {module_name}@{version} on platform: {platform}")
             print('='*60)
 
             presubmit_path = registry_path / 'modules' / module_name / version / 'presubmit.yml'
 
             if not presubmit_path.exists():
-                print(f"Warning: presubmit.yml not found for {module_name}@{version}")
+                print(f"⏭️  Skipping: presubmit.yml not found for {module_name}@{version}")
+                skipped.append(f"{module_name}@{version}")
                 continue
 
             # Read presubmit.yml
@@ -40,9 +74,17 @@ def run_bazel_tests(registry_path: Path = Path('.')):
                 config = yaml.safe_load(f)
 
             matrix = config.get('matrix', {})
-            bazel_versions = matrix.get('bazel', ['7.x'])
-            platforms = matrix.get('platform', ['ubuntu2404'])
+            presubmit_platforms = matrix.get('platform', ['ubuntu2404'])
 
+            # Check if current platform is in the matrix
+            if not should_run_for_platform(presubmit_platforms, platform):
+                print(f"⏭️  Skipping: platform '{platform}' not in presubmit.yml matrix: {presubmit_platforms}")
+                skipped.append(f"{module_name}@{version}:{platform}")
+                continue
+
+            print(f"✓ Platform '{platform}' matched presubmit.yml matrix: {presubmit_platforms}")
+
+            bazel_versions = matrix.get('bazel', ['7.x'])
             tasks = config.get('tasks', {})
 
             for task_name, task_config in tasks.items():
@@ -53,7 +95,7 @@ def run_bazel_tests(registry_path: Path = Path('.')):
                     print(f"  No targets defined for task: {task_name}")
                     continue
 
-                # Use first bazel version and platform
+                # Use first bazel version
                 bazel_version = bazel_versions[0]
 
                 print(f"\n  Task: {task_name}")
@@ -126,19 +168,26 @@ bazel_dep(name = "{module_name}", version = "{version}")
                     else:
                         print(f"    SUCCESS")
 
+    # Summary
+    print(f"\n{'='*60}")
+    print(f"SUMMARY for platform: {platform}")
+    print('='*60)
+
+    if skipped:
+        print(f"\n⏭️  Skipped ({len(skipped)}):")
+        for s in skipped:
+            print(f"  - {s}")
+
     if failed:
-        print(f"\n{'='*60}")
-        print(f"FAILED: {len(failed)} target(s)")
-        print('='*60)
+        print(f"\n❌ Failed ({len(failed)}):")
         for f in failed:
             print(f"  - {f}")
         return 1
     else:
-        print(f"\n{'='*60}")
-        print("All tests passed!")
-        print('='*60)
+        print(f"\n✅ All tests passed!")
         return 0
 
 
 if __name__ == '__main__':
-    sys.exit(run_bazel_tests())
+    args = parse_args()
+    sys.exit(run_bazel_tests(args.platform))

@@ -18,104 +18,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 检查标签的任务
-  check-label:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    outputs:
-      has_trigger_label: ${{ steps.check.outputs.has_trigger_label }}
-    steps:
-      - name: Check for trigger label
-        id: check
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const triggerLabel = process.env.TRIGGER_LABEL;
-            const labels = context.payload.pull_request.labels.map(l => l.name);
-            const hasLabel = labels.includes(triggerLabel);
-            core.setOutput('has_trigger_label', hasLabel.toString());
-            console.log(`Labels: ${labels.join(', ')}`);
-            console.log(`Has '${triggerLabel}' label: ${hasLabel}`);
-
-      - name: Comment if no trigger label
-        if: steps.check.outputs.has_trigger_label == 'false'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const triggerLabel = process.env.TRIGGER_LABEL;
-            const { data: comments } = await github.rest.issues.listComments({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo
-            });
-
-            const marker = '<!-- presubmit-label-check -->';
-            const existingComment = comments.find(c => c.body && c.body.includes(marker));
-
-            const body = `${marker}
-            ## ⏳ Presubmit Checks Waiting
-
-            This PR modifies BCR modules but presubmit checks have **not** been triggered yet.
-
-            To run the presubmit checks, add the \`${triggerLabel}\` label to this PR.
-
-            **How to add the label:**
-            1. Click the "Labels" section on the right sidebar
-            2. Select \`${triggerLabel}\`
-
-            The checks will run automatically once the label is added.
-            `;
-
-            if (existingComment) {
-              await github.rest.issues.updateComment({
-                comment_id: existingComment.id,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: body
-              });
-            } else {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: body
-              });
-            }
-
-      - name: Remove waiting comment if label exists
-        if: steps.check.outputs.has_trigger_label == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const marker = '<!-- presubmit-label-check -->';
-            const { data: comments } = await github.rest.issues.listComments({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo
-            });
-
-            const existingComment = comments.find(c => c.body && c.body.includes(marker));
-            if (existingComment) {
-              await github.rest.issues.deleteComment({
-                comment_id: existingComment.id,
-                owner: context.repo.owner,
-                repo: context.repo.repo
-              });
-              console.log('Removed waiting comment');
-            }
-
-  # 主验证任务 - 只有带有标签时才运行
+  # 主验证任务
   validate:
     runs-on: ubuntu-latest
-    needs: check-label
-    if: ${{ needs.check-label.outputs.has_trigger_label == 'true' }}
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: read
     outputs:
       has_changes: ${{ steps.detect.outputs.has_changes }}
+      changes_json: ${{ steps.detect.outputs.changes_json }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -135,6 +46,10 @@ jobs:
         id: detect
         run: |
           python .github/scripts/detect_changes.py
+          python .github/scripts/detect_changes.py --output changes.json
+          echo "changes_json=$(cat changes.json)" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get PR labels
         id: labels
@@ -153,60 +68,72 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Comment PR with results
+      - name: Output results to log
         if: always()
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const path = '.github/presubmit-results.md';
-            if (!fs.existsSync(path)) {
-              console.log('No results file found');
-              return;
-            }
+        run: |
+          if [ -f .github/presubmit-results.md ]; then
+            echo "=== Presubmit Results ==="
+            cat .github/presubmit-results.md
+            echo "========================="
+          fi
 
-            const body = fs.readFileSync(path, 'utf8');
-
-            // Find existing comment by marker
-            const marker = '<!-- presubmit-results -->';
-            const { data: comments } = await github.rest.issues.listComments({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo
-            });
-            const existingComment = comments.find(c => c.body && c.body.includes(marker));
-
-            const fullBody = `${marker}\n${body}`;
-
-            if (existingComment) {
-              await github.rest.issues.updateComment({
-                comment_id: existingComment.id,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: fullBody
-              });
-              console.log('Updated existing comment');
-            } else {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: fullBody
-              });
-              console.log('Created new comment');
-            }
-
-  # Bazel build test - 按照 presubmit.yml 的规则执行
+  # Bazel build test - 独立的等待标签和矩阵配置
   bazel-test:
-    runs-on: ubuntu-latest
-    needs: [check-label, validate]
-    if: ${{ needs.check-label.outputs.has_trigger_label == 'true' && needs.validate.outputs.has_changes == 'true' }}
+    runs-on: ${{ matrix.os }}
+    needs: [validate]
+    if: ${{ needs.validate.outputs.has_changes == 'true' }}
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-latest]
+        include:
+          - platform: ubuntu2404
+            os: ubuntu-latest
+          - platform: macos
+            os: macos-latest
+          - platform: windows
+            os: windows-latest
+          - platform: linux_arm64
+            os: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
+      - name: Wait for presubmit-auto-run label
+        id: wait-label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const triggerLabel = 'presubmit-auto-run';
+            const maxWaitMinutes = 360; // 6 hours timeout
+            const checkIntervalSeconds = 30;
+            const maxAttempts = (maxWaitMinutes * 60) / checkIntervalSeconds;
+
+            console.log(`⏳ [${{ matrix.platform }}] Waiting for '${triggerLabel}' label...`);
+            console.log(`Timeout: ${maxWaitMinutes} minutes`);
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number
+              });
+
+              const hasLabel = pr.labels.some(l => l.name === triggerLabel);
+
+              if (hasLabel) {
+                console.log(`✅ Label '${triggerLabel}' found after ${attempt * checkIntervalSeconds}s`);
+                return;
+              }
+
+              if (attempt % 10 === 0) {
+                console.log(`  Still waiting... (${attempt}/${maxAttempts})`);
+              }
+
+              await new Promise(resolve => setTimeout(resolve, checkIntervalSeconds * 1000));
+            }
+
+            core.setFailed(`Timeout: Label '${triggerLabel}' not added within ${maxWaitMinutes} minutes`);
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -224,11 +151,12 @@ jobs:
         with:
           bazelisk-version: '1.20.0'
 
-      - name: Detect changed modules
-        id: detect
+      - name: Create changes.json
         run: |
-          python .github/scripts/detect_changes.py --output changes.json
-          echo "modules=$(cat changes.json | jq -c '.new_versions')" >> $GITHUB_OUTPUT
+          echo '${{ needs.validate.outputs.changes_json }}' > changes.json
 
-      - name: Run Bazel tests from presubmit.yml
-        run: python .github/scripts/run_bazel_tests.py
+      - name: Run Bazel tests for ${{ matrix.platform }}
+        run: |
+          python .github/scripts/run_bazel_tests.py --platform ${{ matrix.platform }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
