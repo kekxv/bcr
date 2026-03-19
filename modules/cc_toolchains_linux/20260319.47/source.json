@@ -5,5 +5,5 @@
   "patches": {
     "changes.patch": "sha256-giKJfPkzcgo7tqRbClpftH/hkf+IuAN5gNz6B8WUZvs="
   },
-  "patch_strip": 1
+  "patch_strip": 0
 }

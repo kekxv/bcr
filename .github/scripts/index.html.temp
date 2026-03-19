@@ -113,7 +113,8 @@
         }
 
         /* Hero */
-        .hero { padding: 40px 0 32px; }
+        .hero { padding: 40px 0 32px; transition: all 0.3s ease; }
+        .hero.hidden { display: none; }
         .hero-stats {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -608,11 +609,15 @@ common --registry=https://bcr.bazel.build  # default bcr">
             });
 
             // Search
+            const hero = document.querySelector('.hero');
+
             function updateStats(visibleCount, totalCount) {
                 if (searchInput.value) {
                     searchStats.textContent = `Showing ${visibleCount} of ${totalCount} modules`;
+                    hero.classList.add('hidden');
                 } else {
                     searchStats.textContent = '';
+                    hero.classList.remove('hidden');
                 }
             }
 
