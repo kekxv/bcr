@@ -1,5 +1,9 @@
 {
   "url": "https://github.com/kekxv/cc_toolchains_windows/archive/refs/tags/20260319.tar.gz",
   "integrity": "sha256-UBZ7C02Z7p/deaeerrAMLjbsiGlvDE30tx/pYOz22V4=",
-  "strip_prefix": "cc_toolchains_windows-20260319"
+  "strip_prefix": "cc_toolchains_windows-20260319",
+  "patches": {
+    "changes.patch": "sha256-TwO2uxkaxNPVlGN2nYmLugwV7XeuHVXSO+fnh6j6s0E="
+  },
+  "patch_strip": 1
 }
