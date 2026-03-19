@@ -161,21 +161,51 @@ jobs:
           script: |
             const fs = require('fs');
             const path = '.github/presubmit-results.md';
-            if (fs.existsSync(path)) {
-              const body = fs.readFileSync(path, 'utf8');
-              github.rest.issues.createComment({
+            if (!fs.existsSync(path)) {
+              console.log('No results file found');
+              return;
+            }
+
+            const body = fs.readFileSync(path, 'utf8');
+
+            // Find existing comment by marker
+            const marker = '<!-- presubmit-results -->';
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            const existingComment = comments.find(c => c.body && c.body.includes(marker));
+
+            const fullBody = `${marker}\n${body}`;
+
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                comment_id: existingComment.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: fullBody
+              });
+              console.log('Updated existing comment');
+            } else {
+              await github.rest.issues.createComment({
                 issue_number: context.issue.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                body: body
+                body: fullBody
               });
+              console.log('Created new comment');
             }
 
-  # Bazel build test - 只有带有标签时才运行
+  # Bazel build test - 按照 presubmit.yml 的规则执行
   bazel-test:
     runs-on: ubuntu-latest
     needs: [check-label, validate]
     if: ${{ needs.check-label.outputs.has_trigger_label == 'true' && needs.validate.outputs.has_changes == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-latest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -184,6 +214,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyyaml
 
       - name: Setup Bazel
         uses: bazel-contrib/setup-bazel@0.8.5
@@ -194,42 +228,7 @@ jobs:
         id: detect
         run: |
           python .github/scripts/detect_changes.py --output changes.json
-          echo "modules=$(cat changes.json | jq -r '.new_versions | keys | @json')" >> $GITHUB_OUTPUT
+          echo "modules=$(cat changes.json | jq -c '.new_versions')" >> $GITHUB_OUTPUT
 
-      - name: Run Bazel build tests
-        run: |
-          MODULES='${{ steps.detect.outputs.modules }}'
-          if [ "$MODULES" = "[]" ] || [ -z "$MODULES" ]; then
-            echo "No new modules to test"
-            exit 0
-          fi
-
-          # Test each changed module
-          echo "$MODULES" | jq -r '.[]' | while read module; do
-            VERSIONS=$(cat changes.json | jq -r ".new_versions[\"$module\"] | .[]")
-            echo "Testing module: $module"
-
-            for version in $VERSIONS; do
-              echo "  Building $module@$version..."
-
-              # Create a temporary test workspace
-              TEST_DIR=$(mktemp -d)
-              echo "bazel_dep(name = \"$module\", version = \"$version\")" > "$TEST_DIR/MODULE.bazel"
-              echo 'filegroup(name = "dummy", srcs = [])' > "$TEST_DIR/BUILD.bazel"
-
-              # Use this registry
-              cd "$TEST_DIR"
-              bazel build //... \
-                --registry=file://$GITHUB_WORKSPACE \
-                --enable_bzlmod \
-                --nocheck_direct_dependencies || {
-                echo "Failed to build $module@$version"
-                exit 1
-              }
-
-              cd "$GITHUB_WORKSPACE"
-              rm -rf "$TEST_DIR"
-            done
-          done
-        env:
-          USE_BAZEL_VERSION: '7.x'
+      - name: Run Bazel tests from presubmit.yml
+        run: python .github/scripts/run_bazel_tests.py
