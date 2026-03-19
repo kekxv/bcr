@@ -106,8 +106,8 @@ def create_metadata(module_name: str, homepage: str, maintainers: list) -> dict:
     }
 
 
-def create_source_json(url: str, strip_prefix: Optional[str] = None) -> dict:
-    """Create source.json by downloading and hashing."""
+def create_source_json(url: str, strip_prefix: Optional[str] = None) -> Tuple[dict, bytes]:
+    """Create source.json by downloading and hashing. Returns (source_dict, archive_data)."""
     print(f"Downloading {url}...")
     data, integrity = download_and_hash(url)
 
@@ -123,7 +123,7 @@ def create_source_json(url: str, strip_prefix: Optional[str] = None) -> dict:
         "strip_prefix": strip_prefix
     }
 
-    return source
+    return source, data
 
 
 def create_presubmit_yaml(module_name: str) -> str:
@@ -147,7 +147,66 @@ tasks:
 """.format(module=module_name)
 
 
-def update_metadata_versions(metadata_path: Path, version: str) -> None:
+def create_empty_module_bazel(module_name: str, version: str) -> str:
+    """Create a minimal MODULE.bazel content."""
+    return f'''module(
+    name = "{module_name}",
+    version = "{version}",
+)
+'''
+
+
+def download_module_bazel(url: str) -> Optional[str]:
+    """Download MODULE.bazel from URL."""
+    try:
+        ssl_context = ssl.create_default_context()
+        req = urllib.request.Request(url, headers={'User-Agent': 'BCR-Create/1.0'})
+        with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
+            return response.read().decode('utf-8')
+    except Exception as e:
+        print(f"  Warning: Could not download MODULE.bazel from URL: {e}")
+        return None
+
+
+def get_module_bazel_from_archive(archive_data: bytes, strip_prefix: Optional[str]) -> Optional[str]:
+    """Extract MODULE.bazel from downloaded archive."""
+    import tarfile
+    import zipfile
+    import io
+
+    try:
+        # Try as tar.gz
+        if strip_prefix:
+            module_path = f"{strip_prefix}/MODULE.bazel"
+        else:
+            module_path = "MODULE.bazel"
+
+        try:
+            with tarfile.open(fileobj=io.BytesIO(archive_data), mode='r:gz') as tar:
+                for member in tar.getmembers():
+                    if member.name.endswith('MODULE.bazel') and not member.name.startswith('.'):
+                        f = tar.extractfile(member)
+                        if f:
+                            return f.read().decode('utf-8')
+        except:
+            pass
+
+        # Try as zip
+        try:
+            with zipfile.ZipFile(io.BytesIO(archive_data)) as zf:
+                for name in zf.namelist():
+                    if name.endswith('MODULE.bazel') and not name.startswith('.'):
+                        return zf.read(name).decode('utf-8')
+        except:
+            pass
+
+    except Exception as e:
+        print(f"  Warning: Could not extract MODULE.bazel from archive: {e}")
+
+    return None
+
+
+def update_metadata_versions(metadata_path: Path, version: str):
     """Add version to metadata.json if not exists."""
     with open(metadata_path, 'r') as f:
         metadata = json.load(f)
@@ -255,7 +314,7 @@ def create_module_interactive():
     # Download and create source.json
     print(f"\nDownloading archive...")
     try:
-        source = create_source_json(url, strip_prefix)
+        source, archive_data = create_source_json(url, strip_prefix)
     except Exception as e:
         print(f"Error downloading: {e}")
         sys.exit(1)
@@ -306,16 +365,86 @@ def create_module_interactive():
         f.write(presubmit_content)
     print(f"Created {version_path}/presubmit.yml")
 
-    # Ask about MODULE.bazel
-    has_module_bazel = input("\nDo you have MODULE.bazel to add? (y/n): ").strip().lower() == 'y'
-    if has_module_bazel:
-        module_bazel_path = input("Path to MODULE.bazel file: ").strip()
-        if Path(module_bazel_path).exists():
-            import shutil
-            shutil.copy(module_bazel_path, version_path / "MODULE.bazel")
-            print(f"Copied MODULE.bazel to {version_path}/")
-        else:
-            print(f"File not found: {module_bazel_path}")
+    # Handle MODULE.bazel (mandatory)
+    print("\n" + "-" * 40)
+    print("MODULE.bazel is required for all modules.")
+    print("-" * 40)
+
+    module_bazel_content = None
+
+    # 1. First, try to extract from the downloaded archive
+    print("\n1. Checking archive for MODULE.bazel...")
+    module_bazel_content = get_module_bazel_from_archive(archive_data, source.get('strip_prefix'))
+    if module_bazel_content:
+        print("   ✓ Found MODULE.bazel in archive")
+    else:
+        print("   ✗ Not found in archive")
+
+    # 2. Ask user if they want to provide one
+    if not module_bazel_content:
+        print("\n2. How would you like to provide MODULE.bazel?")
+        print("   1. From local file")
+        print("   2. From URL")
+        print("   3. Create empty one (will be created automatically)")
+        choice = input("   Select (1-3, default: 3): ").strip() or "3"
+
+        if choice == "1":
+            file_path = input("   Path to MODULE.bazel: ").strip()
+            if file_path and Path(file_path).exists():
+                module_bazel_content = Path(file_path).read_text()
+                print("   ✓ Loaded from file")
+            else:
+                print(f"   ✗ File not found: {file_path}")
+        elif choice == "2":
+            module_url = input("   URL to MODULE.bazel: ").strip()
+            if module_url:
+                module_bazel_content = download_module_bazel(module_url)
+                if module_bazel_content:
+                    print("   ✓ Downloaded from URL")
+                else:
+                    print("   ✗ Failed to download")
+
+    # 3. Create empty one as fallback
+    if not module_bazel_content:
+        print("\n   Creating empty MODULE.bazel...")
+        module_bazel_content = create_empty_module_bazel(module_name, version)
+        print("   ✓ Created empty MODULE.bazel")
+
+    # 4. Validate module name matches
+    # Extract module name from MODULE.bazel content
+    name_match = re.search(r'module\s*\([^)]*name\s*=\s*"([^"]+)"', module_bazel_content, re.DOTALL)
+    if name_match:
+        found_name = name_match.group(1)
+        if found_name != module_name:
+            print(f"\n   ⚠ Warning: MODULE.bazel has name='{found_name}' but module is '{module_name}'")
+            fix = input("   Fix module name in MODULE.bazel? (y/n, default: y): ").strip().lower() or "y"
+            if fix == "y":
+                module_bazel_content = re.sub(
+                    r'(name\s*=\s*")([^"]+)(")',
+                    f'\\g<1>{module_name}\\g<3>',
+                    module_bazel_content
+                )
+                print("   ✓ Fixed module name")
+
+    # 5. Validate version matches
+    version_match = re.search(r'version\s*=\s*"([^"]+)"', module_bazel_content)
+    if version_match:
+        found_version = version_match.group(1)
+        if found_version != version:
+            print(f"\n   ⚠ Warning: MODULE.bazel has version='{found_version}' but version is '{version}'")
+            fix = input("   Fix version in MODULE.bazel? (y/n, default: y): ").strip().lower() or "y"
+            if fix == "y":
+                module_bazel_content = re.sub(
+                    r'(version\s*=\s*")([^"]+)(")',
+                    f'\\g<1>{version}\\g<3>',
+                    module_bazel_content
+                )
+                print("   ✓ Fixed version")
+
+    # Write MODULE.bazel
+    with open(version_path / "MODULE.bazel", 'w') as f:
+        f.write(module_bazel_content)
+    print(f"\n   ✓ Created {version_path}/MODULE.bazel")
 
     # Ask about patches
     has_patches = input("\nDo you have patches to add? (y/n): ").strip().lower() == 'y'
@@ -391,6 +520,8 @@ Examples:
     parser.add_argument('--maintainer-name', help='Maintainer name')
     parser.add_argument('--maintainer-email', help='Maintainer email')
     parser.add_argument('--maintainer-github', help='Maintainer GitHub username')
+    parser.add_argument('--module-bazel', help='Path to MODULE.bazel file (optional, will extract from archive or create empty if not provided)')
+    parser.add_argument('--module-bazel-url', help='URL to download MODULE.bazel (optional)')
 
     args = parser.parse_args()
 
@@ -424,7 +555,7 @@ Examples:
     # Download and create source.json
     print(f"Downloading {url}...")
     try:
-        source = create_source_json(url, args.strip_prefix)
+        source, archive_data = create_source_json(url, args.strip_prefix)
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)
@@ -465,6 +596,40 @@ Examples:
     presubmit_content = create_presubmit_yaml(module_name)
     with open(version_path / "presubmit.yml", 'w') as f:
         f.write(presubmit_content)
+
+    # Handle MODULE.bazel (mandatory)
+    module_bazel_content = None
+
+    # 1. Try provided file path
+    if args.module_bazel:
+        if Path(args.module_bazel).exists():
+            module_bazel_content = Path(args.module_bazel).read_text()
+            print(f"Loaded MODULE.bazel from {args.module_bazel}")
+        else:
+            print(f"Warning: MODULE.bazel file not found: {args.module_bazel}")
+
+    # 2. Try provided URL
+    if not module_bazel_content and args.module_bazel_url:
+        module_bazel_content = download_module_bazel(args.module_bazel_url)
+        if module_bazel_content:
+            print(f"Downloaded MODULE.bazel from URL")
+        else:
+            print(f"Warning: Could not download MODULE.bazel from URL")
+
+    # 3. Try extracting from archive
+    if not module_bazel_content:
+        module_bazel_content = get_module_bazel_from_archive(archive_data, source.get('strip_prefix'))
+        if module_bazel_content:
+            print(f"Extracted MODULE.bazel from archive")
+
+    # 4. Create empty one as fallback
+    if not module_bazel_content:
+        module_bazel_content = create_empty_module_bazel(module_name, version)
+        print(f"Created empty MODULE.bazel")
+
+    # Write MODULE.bazel
+    with open(version_path / "MODULE.bazel", 'w') as f:
+        f.write(module_bazel_content)
 
     print(f"Created {module_name}@{version}")
 
