@@ -1,0 +1,17 @@
+{
+  "homepage": "https://github.com/kekxv/cc_toolchains_windows",
+  "maintainers": [
+    {
+      "email": "caesar@kekxv.com",
+      "github": "kekxv",
+      "name": "kekxv"
+    }
+  ],
+  "repository": [
+    "github:kekxv/cc_toolchains_windows"
+  ],
+  "versions": [
+    "20260319"
+  ],
+  "yanked_versions": {}
+}
