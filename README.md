@@ -22,7 +22,8 @@ bcr-custom-registry/
 │   │   ├── detect_changes.py    # Detect changed modules in PRs
 │   │   ├── presubmit.py         # Unified presubmit checks
 │   │   ├── publish.py           # Registry publishing
-│   │   └── generate_diff.py     # Module diff generation
+│   │   ├── generate_diff.py     # Module diff generation
+│   │   └── create_module.py     # Quick module creation script
 │   └── workflows/
 │       ├── presubmit.yml        # PR validation workflow
 │       ├── publish.yml          # Publish to GitHub Pages
