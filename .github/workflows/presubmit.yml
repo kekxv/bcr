@@ -117,12 +117,8 @@ jobs:
 
               # Create a temporary test workspace
               TEST_DIR=$(mktemp -d)
-              cat > "$TEST_DIR/MODULE.bazel" << EOF
-bazel_dep(name = "$module", version = "$version")
-EOF
-              cat > "$TEST_DIR/BUILD.bazel" << EOF
-filegroup(name = "dummy", srcs = [])
-EOF
+              echo "bazel_dep(name = \"$module\", version = \"$version\")" > "$TEST_DIR/MODULE.bazel"
+              echo 'filegroup(name = "dummy", srcs = [])' > "$TEST_DIR/BUILD.bazel"
 
               # Use this registry
               cd "$TEST_DIR"
