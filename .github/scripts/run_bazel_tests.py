@@ -53,11 +53,23 @@ def should_run_for_platform(presubmit_platforms: list, current_platform: str) ->
     return False
 
 
-def run_bazel_tests(platform: str, registry_path: Path = Path('.')):
+def run_bazel_tests(platform: str, registry_path: Path = None):
     """Run bazel tests according to presubmit.yml for changed modules."""
 
+    # Use current directory as registry if not specified
+    if registry_path is None:
+        registry_path = Path.cwd()
+    
+    # Ensure absolute path
+    registry_path = registry_path.absolute()
+
     # Read detected changes
-    with open('changes.json') as f:
+    changes_file = registry_path / 'changes.json'
+    if not changes_file.exists():
+        print(f"Error: changes.json not found at {changes_file}", file=sys.stderr)
+        return 1
+    
+    with open(changes_file) as f:
         changes = json.load(f)
 
     # Get all changes (new + modified versions)
@@ -78,6 +90,7 @@ def run_bazel_tests(platform: str, registry_path: Path = Path('.')):
         for version in versions:
             print(f"\n{'='*60}")
             print(f"Testing {module_name}@{version} on platform: {platform}")
+            print(f"Registry path: {registry_path}")
             print('='*60)
 
             presubmit_path = registry_path / 'modules' / module_name / version / 'presubmit.yml'
@@ -140,18 +153,14 @@ bazel_dep(name = "{module_name}", version = "{version}")
                 for target in build_targets:
                     # Replace ${{ }} variables
                     actual_target = target.replace('${{ module }}', module_name)
-                    # Remove @module// prefix for local workspace
-                    if actual_target.startswith(f'@{module_name}//'):
-                        actual_target = actual_target[len(f'@{module_name}'):]
-                    elif actual_target.startswith('@'):
-                        # Keep other external deps
-                        pass
-
+                    # Keep external module targets as-is (@module//:target)
+                    # Only modify targets that reference the module being tested
+                    
                     print(f"\n    Building: {target}")
 
                     result = subprocess.run(
                         ['bazel', 'build', actual_target,
-                         '--registry=file://' + str(registry_path.absolute()),
+                         '--registry=file://' + str(registry_path),
                          '--registry=https://bcr.bazel.build',
                          '--enable_bzlmod'],
                         cwd=test_dir,
@@ -167,15 +176,15 @@ bazel_dep(name = "{module_name}", version = "{version}")
 
                 # Run test targets
                 for target in test_targets:
+                    # Replace ${{ }} variables
                     actual_target = target.replace('${{ module }}', module_name)
-                    if actual_target.startswith(f'@{module_name}//'):
-                        actual_target = actual_target[len(f'@{module_name}'):]
-
+                    # Keep external module targets as-is
+                    
                     print(f"\n    Testing: {target}")
 
                     result = subprocess.run(
                         ['bazel', 'test', actual_target,
-                         '--registry=file://' + str(registry_path.absolute()),
+                         '--registry=file://' + str(registry_path),
                          '--registry=https://bcr.bazel.build',
                          '--enable_bzlmod'],
                         cwd=test_dir,
