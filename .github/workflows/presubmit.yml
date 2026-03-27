@@ -200,8 +200,10 @@ jobs:
               run_id: context.runId
             });
 
-            // Find bazel-test matrix jobs
-            const bazelTestJobs = jobs.jobs.filter(j => j.name.startsWith('bazel-test'));
+            // Find bazel-test matrix jobs (exclude bazel-test-result)
+            const bazelTestJobs = jobs.jobs.filter(j => 
+              j.name.startsWith('bazel-test') && !j.name.includes('result')
+            );
             
             if (bazelTestJobs.length === 0) {
               // No bazel-test jobs found - likely skipped
