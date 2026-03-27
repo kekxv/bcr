@@ -49,14 +49,21 @@ def run_bazel_tests(platform: str, registry_path: Path = Path('.')):
     with open('changes.json') as f:
         changes = json.load(f)
 
-    if not changes.get('new_versions'):
-        print("No new modules to test")
+    # Get all changes (new + modified versions)
+    all_changes = changes.get('all_changes', {})
+    if not all_changes:
+        all_changes = changes.get('modified_versions', {})
+    if not all_changes:
+        all_changes = changes.get('new_versions', {})
+
+    if not all_changes:
+        print("No modules to test")
         return 0
 
     failed = []
     skipped = []
 
-    for module_name, versions in changes['new_versions'].items():
+    for module_name, versions in all_changes.items():
         for version in versions:
             print(f"\n{'='*60}")
             print(f"Testing {module_name}@{version} on platform: {platform}")
