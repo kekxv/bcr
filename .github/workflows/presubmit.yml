@@ -29,6 +29,7 @@ jobs:
       has_changes: ${{ steps.detect.outputs.has_changes }}
       changes_json: ${{ steps.detect.outputs.changes_json }}
       matrix: ${{ steps.platforms.outputs.matrix }}
+      has_matrix: ${{ steps.platforms.outputs.has_matrix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -59,6 +60,12 @@ jobs:
         run: |
           python .github/scripts/get_test_platforms.py --changes-json changes.json --output platforms.json
           echo "matrix=$(jq -c . platforms.json)" >> $GITHUB_OUTPUT
+          # Check if matrix has any items
+          if [ "$(jq '.include | length' platforms.json)" -gt 0 ]; then
+            echo "has_matrix=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_matrix=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Get PR labels
         id: labels
@@ -114,7 +121,7 @@ jobs:
   bazel-test:
     runs-on: ${{ matrix.os }}
     needs: [validate]
-    if: contains(github.event.pull_request.labels.*.name, 'presubmit-auto-run') && needs.validate.outputs.has_changes == 'true'
+    if: contains(github.event.pull_request.labels.*.name, 'presubmit-auto-run') && needs.validate.outputs.has_changes == 'true' && needs.validate.outputs.has_matrix == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.validate.outputs.matrix) }}
@@ -144,7 +151,15 @@ jobs:
         run: |
           echo '${{ needs.validate.outputs.changes_json }}' > changes.json
 
+      - name: Check if platform is needed
+        id: check-platform
+        run: |
+          python .github/scripts/check_platform_needed.py --platform ${{ matrix.platform }} --changes-json changes.json
+        env:
+          GITHUB_OUTPUT: ${{ env.GITHUB_OUTPUT }}
+
       - name: Run Bazel tests for ${{ matrix.platform }}
+        if: steps.check-platform.outputs.needed == 'true'
         run: |
           python .github/scripts/run_bazel_tests.py --platform ${{ matrix.platform }}
         env:
