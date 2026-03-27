@@ -152,6 +152,7 @@ bazel_dep(name = "{module_name}", version = "{version}")
                     result = subprocess.run(
                         ['bazel', 'build', actual_target,
                          '--registry=file://' + str(registry_path.absolute()),
+                         '--registry=https://bcr.bazel.build',
                          '--enable_bzlmod'],
                         cwd=test_dir,
                         capture_output=True,
@@ -175,6 +176,7 @@ bazel_dep(name = "{module_name}", version = "{version}")
                     result = subprocess.run(
                         ['bazel', 'test', actual_target,
                          '--registry=file://' + str(registry_path.absolute()),
+                         '--registry=https://bcr.bazel.build',
                          '--enable_bzlmod'],
                         cwd=test_dir,
                         capture_output=True,
