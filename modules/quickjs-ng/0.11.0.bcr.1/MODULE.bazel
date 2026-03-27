@@ -1,6 +1,6 @@
 module(
     name = "quickjs-ng",
-    version = "0.11.0",
+    version = "0.11.0.bcr.1",
     bazel_compatibility = [">=7.2.1"],
 )
 
