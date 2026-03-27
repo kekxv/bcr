@@ -11,7 +11,7 @@ on:
 
 # 定义标签常量
 env:
-  TRIGGER_LABEL: 'run-presubmit'
+  TRIGGER_LABEL: 'presubmit-auto-run'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
@@ -24,9 +24,11 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      checks: write
     outputs:
       has_changes: ${{ steps.detect.outputs.has_changes }}
       changes_json: ${{ steps.detect.outputs.changes_json }}
+      matrix: ${{ steps.platforms.outputs.matrix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -51,6 +53,12 @@ jobs:
           echo "changes_json=$(jq -c . changes.json)" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get test platforms from presubmit.yml
+        id: platforms
+        run: |
+          python .github/scripts/get_test_platforms.py --changes-json changes.json --output platforms.json
+          echo "matrix=$(jq -c . platforms.json)" >> $GITHUB_OUTPUT
 
       - name: Get PR labels
         id: labels
@@ -78,63 +86,43 @@ jobs:
             echo "========================="
           fi
 
-  # Bazel build test - 独立的等待标签和矩阵配置
-  bazel-test:
-    runs-on: ${{ matrix.os }}
-    needs: [validate]
-    if: ${{ needs.validate.outputs.has_changes == 'true' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: ubuntu2404
-            os: ubuntu-latest
-          - platform: macos
-            os: macos-latest
-          - platform: windows
-            os: windows-latest
-          - platform: linux_arm64
-            os: ubuntu-24.04-arm
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - name: Wait for presubmit-auto-run label
-        id: wait-label
+      - name: Create pending check for bazel-test
+        if: "!contains(github.event.pull_request.labels.*.name, 'presubmit-auto-run') && steps.detect.outputs.has_changes == 'true'"
         uses: actions/github-script@v7
         with:
           script: |
-            const triggerLabel = 'presubmit-auto-run';
-            const maxWaitMinutes = 360; // 6 hours timeout
-            const checkIntervalSeconds = 30;
-            const maxAttempts = (maxWaitMinutes * 60) / checkIntervalSeconds;
-
-            console.log(`⏳ [${{ matrix.platform }}] Waiting for '${triggerLabel}' label...`);
-            console.log(`Timeout: ${maxWaitMinutes} minutes`);
-
-            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-              const { data: pr } = await github.rest.pulls.get({
+            // Get platforms from matrix output
+            const matrix = JSON.parse('${{ steps.platforms.outputs.matrix }}');
+            const platforms = matrix.include.map(item => item.platform);
+            
+            // Create pending check runs for each platform
+            for (const platform of platforms) {
+              await github.rest.checks.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                pull_number: context.issue.number
+                name: `bazel-test (${platform})`,
+                head_sha: context.payload.pull_request.head.sha,
+                status: 'queued',
+                output: {
+                  title: 'Waiting for presubmit-auto-run label',
+                  summary: 'Add the `presubmit-auto-run` label to trigger Bazel tests.'
+                }
               });
-
-              const hasLabel = pr.labels.some(l => l.name === triggerLabel);
-
-              if (hasLabel) {
-                console.log(`✅ Label '${triggerLabel}' found after ${attempt * checkIntervalSeconds}s`);
-                return;
-              }
-
-              if (attempt % 10 === 0) {
-                console.log(`  Still waiting... (${attempt}/${maxAttempts})`);
-              }
-
-              await new Promise(resolve => setTimeout(resolve, checkIntervalSeconds * 1000));
             }
 
-            core.setFailed(`Timeout: Label '${triggerLabel}' not added within ${maxWaitMinutes} minutes`);
-
+  # Bazel build test - 使用动态 matrix 配置
+  bazel-test:
+    runs-on: ${{ matrix.os }}
+    needs: [validate]
+    if: contains(github.event.pull_request.labels.*.name, 'presubmit-auto-run') && needs.validate.outputs.has_changes == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.validate.outputs.matrix) }}
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+    steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -161,3 +149,121 @@ jobs:
           python .github/scripts/run_bazel_tests.py --platform ${{ matrix.platform }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Bazel test result check - 用于设置为 Required status check
+  bazel-test-result:
+    runs-on: ubuntu-latest
+    needs: [validate, bazel-test]
+    if: always() && needs.validate.outputs.has_changes == 'true'
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: write
+      actions: read
+    outputs:
+      result: ${{ steps.check.outputs.result }}
+    steps:
+      - name: Check bazel-test results
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Check if presubmit-auto-run label exists
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            const hasTriggerLabel = pr.labels.some(l => l.name === 'presubmit-auto-run');
+
+            if (!hasTriggerLabel) {
+              // No trigger label - mark as waiting
+              await github.rest.checks.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'bazel-test-result',
+                head_sha: context.payload.pull_request.head.sha,
+                status: 'queued',
+                output: {
+                  title: 'Waiting for presubmit-auto-run label',
+                  summary: 'Add the `presubmit-auto-run` label to trigger Bazel tests.'
+                }
+              });
+              core.setOutput('result', 'waiting');
+              return;
+            }
+
+            // Get workflow run jobs
+            const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId
+            });
+
+            // Find bazel-test matrix jobs
+            const bazelTestJobs = jobs.jobs.filter(j => j.name.startsWith('bazel-test'));
+            
+            if (bazelTestJobs.length === 0) {
+              // No bazel-test jobs found - likely skipped
+              await github.rest.checks.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'bazel-test-result',
+                head_sha: context.payload.pull_request.head.sha,
+                status: 'completed',
+                conclusion: 'skipped',
+                output: {
+                  title: 'Bazel tests skipped',
+                  summary: 'No changes detected or tests were skipped.'
+                }
+              });
+              core.setOutput('result', 'skipped');
+              return;
+            }
+
+            // Check all matrix job results
+            let allPassed = true;
+            let failedPlatforms = [];
+            
+            for (const job of bazelTestJobs) {
+              // Extract platform from job name: "bazel-test (platform)" or "bazel-test"
+              const platformMatch = job.name.match(/bazel-test\s*\(([^)]+)\)/);
+              const platform = platformMatch ? platformMatch[1] : job.name;
+              
+              if (job.conclusion !== 'success') {
+                allPassed = false;
+                failedPlatforms.push(platform);
+              }
+            }
+
+            // Create final check result
+            if (allPassed) {
+              await github.rest.checks.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'bazel-test-result',
+                head_sha: context.payload.pull_request.head.sha,
+                status: 'completed',
+                conclusion: 'success',
+                output: {
+                  title: 'All Bazel tests passed',
+                  summary: `All ${bazelTestJobs.length} platform tests completed successfully.`
+                }
+              });
+              core.setOutput('result', 'success');
+            } else {
+              await github.rest.checks.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'bazel-test-result',
+                head_sha: context.payload.pull_request.head.sha,
+                status: 'completed',
+                conclusion: 'failure',
+                output: {
+                  title: 'Bazel tests failed',
+                  summary: `Failed platforms: ${failedPlatforms.join(', ')}`
+                }
+              });
+              core.setOutput('result', 'failure');
+              core.setFailed(`Bazel tests failed on: ${failedPlatforms.join(', ')}`);
+            }
