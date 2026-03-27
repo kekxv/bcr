@@ -30,6 +30,13 @@ VALID_SKIP_CHECKS = {
     'source-integrity-check',
 }
 
+# Label to skip check mapping (label -> check name)
+LABEL_TO_SKIP_CHECK = {
+    'url-stability': 'url-stability-check',
+    'skip-url-stability': 'url-stability-check',
+    'skip-url-stability-check': 'url-stability-check',
+}
+
 
 class Colors:
     """ANSI color codes for terminal output."""
@@ -645,14 +652,22 @@ def main():
 
     skip_checks = set(args.skip_checks or [])
 
-    # Parse skip checks from PR labels (format: skip-<check-name>)
+    # Parse skip checks from PR labels
+    # Format 1: skip-<check-name> (e.g., skip-url-stability-check)
+    # Format 2: direct label mapping (e.g., url-stability)
     if args.pr_labels:
         for label in args.pr_labels.split():
-            if label.startswith('skip-'):
+            # Check direct label mapping first
+            if label in LABEL_TO_SKIP_CHECK:
+                check_name = LABEL_TO_SKIP_CHECK[label]
+                skip_checks.add(check_name)
+                print(f"Will skip check: {check_name} (from label '{label}')")
+            # Check skip-<check-name> format
+            elif label.startswith('skip-'):
                 check_name = label[5:]  # Remove 'skip-' prefix
                 if check_name in VALID_SKIP_CHECKS:
                     skip_checks.add(check_name)
-                    print(f"Will skip check: {check_name} (from label)")
+                    print(f"Will skip check: {check_name} (from label '{label}')")
 
     invalid = skip_checks - VALID_SKIP_CHECKS
     if invalid:
