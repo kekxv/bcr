@@ -47,7 +47,10 @@ jobs:
         run: |
           python .github/scripts/detect_changes.py
           python .github/scripts/detect_changes.py --output changes.json
-          echo "changes_json=$(cat changes.json)" >> $GITHUB_OUTPUT
+          # Use heredoc to properly handle multi-line JSON
+          echo "changes_json<<EOF" >> $GITHUB_OUTPUT
+          cat changes.json >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
