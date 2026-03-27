@@ -20,13 +20,24 @@ def parse_args():
 def get_github_runner_platform(platform_name: str) -> str:
     """Map presubmit platform to GitHub Actions runner OS."""
     mapping = {
+        # Debian variants
+        'debian10': 'linux',
+        'debian11': 'linux',
+        'debian12': 'linux',
+        # Ubuntu variants
         'ubuntu2404': 'linux',
         'ubuntu2004': 'linux',
         'ubuntu2204': 'linux',
+        'ubuntu2404_arm64': 'linux',
+        'ubuntu_arm64': 'linux',
+        'linux_arm64': 'linux',
+        # macOS variants
         'macos': 'macos',
         'macos_arm64': 'macos',
+        'macos14': 'macos',
+        'macos15': 'macos',
+        # Windows
         'windows': 'windows',
-        'linux_arm64': 'linux',
     }
     return mapping.get(platform_name, platform_name)
 
@@ -94,6 +105,9 @@ def run_bazel_tests(platform: str, registry_path: Path = Path('.')):
             bazel_versions = matrix.get('bazel', ['7.x'])
             tasks = config.get('tasks', {})
 
+            # Shutdown any existing Bazel server to avoid conflicts
+            subprocess.run(['bazel', 'shutdown'], capture_output=True)
+
             for task_name, task_config in tasks.items():
                 build_targets = task_config.get('build_targets', [])
                 test_targets = task_config.get('test_targets', [])
@@ -138,8 +152,7 @@ bazel_dep(name = "{module_name}", version = "{version}")
                     result = subprocess.run(
                         ['bazel', 'build', actual_target,
                          '--registry=file://' + str(registry_path.absolute()),
-                         '--enable_bzlmod',
-                         '--nocheck_direct_dependencies'],
+                         '--enable_bzlmod'],
                         cwd=test_dir,
                         capture_output=True,
                         text=True
@@ -162,8 +175,7 @@ bazel_dep(name = "{module_name}", version = "{version}")
                     result = subprocess.run(
                         ['bazel', 'test', actual_target,
                          '--registry=file://' + str(registry_path.absolute()),
-                         '--enable_bzlmod',
-                         '--nocheck_direct_dependencies'],
+                         '--enable_bzlmod'],
                         cwd=test_dir,
                         capture_output=True,
                         text=True
