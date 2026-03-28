@@ -2,10 +2,12 @@
 """
 Generate diff between a new module version and its previous version.
 Compares filesystem (new version) with metadata.json's previous version.
+Also detects modified versions via git diff.
 """
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -71,6 +73,50 @@ def detect_new_versions(registry: RegistryClient) -> List[Tuple[str, Optional[st
                 version = item.name
                 if version not in existing_versions:
                     changes.append((module_name, version))
+
+    return changes
+
+
+def detect_modified_versions(registry: RegistryClient) -> List[Tuple[str, str]]:
+    """
+    Detect modified versions by git diff against origin/main.
+    Returns list of (module_name, version) tuples for modified versions.
+    """
+    changes: List[Tuple[str, str]] = []
+
+    try:
+        result = subprocess.run(
+            ['git', 'diff', '--name-status', 'origin/main', '--', 'modules/'],
+            capture_output=True, text=True, check=True
+        )
+
+        for line in result.stdout.strip().split('\n'):
+            if not line:
+                continue
+
+            parts = line.split('\t')
+            if len(parts) < 2:
+                continue
+
+            file_path = parts[-1]
+            path_parts = file_path.split('/')
+
+            if len(path_parts) >= 3:
+                module_name = path_parts[1]
+                version = path_parts[2]
+
+                # Skip if not a version directory
+                if version in ['metadata.json', 'README.md']:
+                    continue
+
+                # Check if this is a valid version
+                version_path = registry.modules_path / module_name / version
+                if version_path.is_dir() and (version_path / "source.json").exists():
+                    if (module_name, version) not in changes:
+                        changes.append((module_name, version))
+
+    except subprocess.CalledProcessError:
+        pass
 
     return changes
 
@@ -211,22 +257,33 @@ def diff_new_module(registry: RegistryClient, module_name: str) -> Optional[str]
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Generate diff between new module versions and their previous versions'
+        description='Generate diff between new/modified module versions and their previous versions'
     )
     parser.add_argument('--output', required=True, help='Output file path')
     args = parser.parse_args()
 
     registry = RegistryClient('.')
-    changes = detect_new_versions(registry)
 
-    if not changes:
-        print("No new versions detected")
-        Path(args.output).write_text("# No new module versions detected\n")
+    # Detect both new versions and modified versions
+    new_versions = detect_new_versions(registry)
+    modified_versions = detect_modified_versions(registry)
+
+    # Merge and deduplicate
+    all_changes: List[Tuple[str, Optional[str]]] = list(new_versions)
+    for module_name, version in modified_versions:
+        if (module_name, version) not in all_changes:
+            all_changes.append((module_name, version))
+
+    if not all_changes:
+        print("No new or modified versions detected")
+        Path(args.output).write_text("# No new or modified module versions detected\n")
         return 0
+
+    print(f"Detected {len(all_changes)} changed version(s)")
 
     sections = []
 
-    for module_name, version in changes:
+    for module_name, version in all_changes:
         if version:
             diff = diff_version(registry, module_name, version)
         else:
@@ -237,7 +294,7 @@ def main():
 
     if sections:
         header = "# Module Version Diff\n\n"
-        header += "Comparing new versions with their previous versions:\n\n"
+        header += "Comparing new/modified versions with their previous versions:\n\n"
         report = header + "\n".join(sections)
     else:
         report = "# No significant changes detected\n"

@@ -30,6 +30,13 @@ VALID_SKIP_CHECKS = {
     'source-integrity-check',
 }
 
+# Label to skip check mapping (label -> check name)
+LABEL_TO_SKIP_CHECK = {
+    'url-stability': 'url-stability-check',
+    'skip-url-stability': 'url-stability-check',
+    'skip-url-stability-check': 'url-stability-check',
+}
+
 
 class Colors:
     """ANSI color codes for terminal output."""
@@ -298,6 +305,81 @@ class PresubmitChecker:
 
         except Exception as e:
             results.append(CheckResult("source/download", False, f"Failed to download: {e}"))
+
+        # Verify overlay file integrity
+        overlay = source.get('overlay', {})
+        if overlay:
+            overlay_path = self.registry.modules_path / module_name / version / "overlay"
+            for overlay_file, expected_integrity in overlay.items():
+                file_path = overlay_path / overlay_file
+                if not file_path.exists():
+                    results.append(CheckResult(
+                        f"overlay/{overlay_file}",
+                        False,
+                        f"Overlay file not found: {overlay_file}",
+                        fixable=False
+                    ))
+                    continue
+
+                # Calculate hash of overlay file
+                sha256 = hashlib.sha256()
+                with open(file_path, 'rb') as f:
+                    while True:
+                        chunk = f.read(8192)
+                        if not chunk:
+                            break
+                        sha256.update(chunk)
+
+                # Convert to expected format (sha256-BASE64)
+                import base64
+                actual_integrity = "sha256-" + base64.b64encode(sha256.digest()).decode('ascii')
+
+                if actual_integrity == expected_integrity:
+                    results.append(CheckResult(f"overlay/{overlay_file}", True, "Integrity verified"))
+                else:
+                    results.append(CheckResult(
+                        f"overlay/{overlay_file}",
+                        False,
+                        f"Hash mismatch: expected {expected_integrity}, got {actual_integrity}",
+                        fixable=True
+                    ))
+
+        # Verify patch file integrity
+        patches = source.get('patches', {})
+        if patches:
+            patches_path = self.registry.modules_path / module_name / version / "patches"
+            for patch_file, expected_integrity in patches.items():
+                file_path = patches_path / patch_file
+                if not file_path.exists():
+                    results.append(CheckResult(
+                        f"patch/{patch_file}",
+                        False,
+                        f"Patch file not found: {patch_file}",
+                        fixable=False
+                    ))
+                    continue
+
+                # Calculate hash of patch file
+                sha256 = hashlib.sha256()
+                with open(file_path, 'rb') as f:
+                    while True:
+                        chunk = f.read(8192)
+                        if not chunk:
+                            break
+                        sha256.update(chunk)
+
+                # Convert to expected format (sha256-BASE64)
+                actual_integrity = "sha256-" + base64.b64encode(sha256.digest()).decode('ascii')
+
+                if actual_integrity == expected_integrity:
+                    results.append(CheckResult(f"patch/{patch_file}", True, "Integrity verified"))
+                else:
+                    results.append(CheckResult(
+                        f"patch/{patch_file}",
+                        False,
+                        f"Hash mismatch: expected {expected_integrity}, got {actual_integrity}",
+                        fixable=True
+                    ))
 
         return results
 
@@ -645,14 +727,22 @@ def main():
 
     skip_checks = set(args.skip_checks or [])
 
-    # Parse skip checks from PR labels (format: skip-<check-name>)
+    # Parse skip checks from PR labels
+    # Format 1: skip-<check-name> (e.g., skip-url-stability-check)
+    # Format 2: direct label mapping (e.g., url-stability)
     if args.pr_labels:
         for label in args.pr_labels.split():
-            if label.startswith('skip-'):
+            # Check direct label mapping first
+            if label in LABEL_TO_SKIP_CHECK:
+                check_name = LABEL_TO_SKIP_CHECK[label]
+                skip_checks.add(check_name)
+                print(f"Will skip check: {check_name} (from label '{label}')")
+            # Check skip-<check-name> format
+            elif label.startswith('skip-'):
                 check_name = label[5:]  # Remove 'skip-' prefix
                 if check_name in VALID_SKIP_CHECKS:
                     skip_checks.add(check_name)
-                    print(f"Will skip check: {check_name} (from label)")
+                    print(f"Will skip check: {check_name} (from label '{label}')")
 
     invalid = skip_checks - VALID_SKIP_CHECKS
     if invalid:
