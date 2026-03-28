@@ -529,7 +529,8 @@ class PresubmitChecker:
         presubmit = self.registry.get_presubmit(module_name, version)
 
         if presubmit is None:
-            return [CheckResult("presubmit-yaml", False, "presubmit.yml not found", fixable=True)]
+            # presubmit.yml is optional - not an error
+            return [CheckResult("presubmit-yaml", True, "Not present (optional)")]
 
         results = []
 

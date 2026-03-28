@@ -214,6 +214,36 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
+            let jobSummary = '### 🧪 Bazel 测试结果\n\n';
+
+            // First check if validate job failed
+            const validateResult = '${{ needs.validate.result }}';
+            if (validateResult === 'failure') {
+              jobSummary += '| 平台 | 状态 |\n';
+              jobSummary += '| :--- | :--- |\n';
+              jobSummary += '| 所有平台 | ❌ 验证失败 |\n';
+              jobSummary += '\n';
+              jobSummary += '> ❌ **验证失败**: presubmit 验证检查失败，Bazel 测试无法执行\n';
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, jobSummary);
+
+              await github.rest.checks.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'bazel-test-result',
+                head_sha: context.payload.pull_request.head.sha,
+                status: 'completed',
+                conclusion: 'failure',
+                output: {
+                  title: '❌ Validation failed',
+                  summary: 'Presubmit validation checks failed. Bazel tests cannot be executed.'
+                }
+              });
+              core.setOutput('result', 'validation-failed');
+              core.setFailed('Validation job failed - Bazel tests skipped');
+              return;
+            }
+
             // Check if presubmit-auto-run label exists
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
@@ -221,10 +251,6 @@ jobs:
               pull_number: context.issue.number
             });
             const hasTriggerLabel = pr.labels.some(l => l.name === 'presubmit-auto-run');
-
-            // Job summary header
-            const fs = require('fs');
-            let jobSummary = '### 🧪 Bazel 测试结果\n\n';
 
             if (!hasTriggerLabel) {
               // No trigger label - mark as waiting
