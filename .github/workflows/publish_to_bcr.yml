@@ -1,0 +1,234 @@
+name: 'Publish to BCR'
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        description: 'Release tag'
+        required: true
+        type: string
+      module_name:
+        description: '模块名'
+        required: true
+        type: string
+      registry:
+        description: '目标 registry (owner/repo)'
+        required: false
+        default: ''
+        type: string
+      registry_fork:
+        description: 'Registry fork'
+        required: false
+        default: ''
+        type: string
+      tag_prefix:
+        description: 'Tag 前缀'
+        required: false
+        default: 'v'
+        type: string
+      templates_dir:
+        description: '模板目录'
+        required: false
+        default: '.bcr'
+        type: string
+      draft:
+        description: 'Draft PR'
+        required: false
+        default: true
+        type: boolean
+      source_url:
+        description: 'Source URL'
+        required: false
+        default: ''
+        type: string
+      strip_prefix:
+        description: 'Strip prefix'
+        required: false
+        default: ''
+        type: string
+    secrets:
+      publish_token:
+        required: false
+    outputs:
+      module_name:
+        value: ${{ jobs.publish.outputs.module_name }}
+      version:
+        value: ${{ jobs.publish.outputs.version }}
+      pull_request_url:
+        value: ${{ jobs.pr.outputs.url }}
+
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        required: true
+      module_name:
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      strategy: ${{ steps.detect.outputs.strategy }}
+      token_type: ${{ steps.detect.outputs.token_type }}
+      target: ${{ steps.detect.outputs.registry_fork }}
+    steps:
+      - name: 确定 registry
+        id: reg
+        run: |
+          REG="${{ inputs.registry || format('{0}/{1}', github.repository_owner, github.event.repository.name) }}"
+          echo "reg=$REG" >> $GITHUB_OUTPUT
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.reg.outputs.reg }}
+          ref: publish-to-bcr
+          path: scripts
+          sparse-checkout: .github/scripts
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 检测 fork
+        id: detect
+        run: python scripts/.github/scripts/fork_detector.py --repository "${{ github.repository }}" --registry "${{ steps.reg.outputs.reg }}" --registry-fork "${{ inputs.registry_fork }}"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: detect
+    outputs:
+      module_name: ${{ steps.pub.outputs.module_name }}
+      version: ${{ steps.pub.outputs.version }}
+      branch_name: ${{ steps.pub.outputs.branch_name }}
+    steps:
+      - name: 确定 registry
+        id: reg
+        run: |
+          REG="${{ inputs.registry || format('{0}/{1}', github.repository_owner, github.event.repository.name) }}"
+          echo "reg=$REG" >> $GITHUB_OUTPUT
+
+      - name: 确定 token
+        id: tok
+        run: |
+          if [ "${{ needs.detect.outputs.token_type }}" = "PAT" ]; then
+            echo "tok=${{ secrets.publish_token }}" >> $GITHUB_OUTPUT
+          else
+            echo "tok=${{ github.token }}" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_name }}
+          path: ruleset
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.reg.outputs.reg }}
+          ref: publish-to-bcr
+          path: scripts
+          sparse-checkout: .github/scripts
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.detect.outputs.target || steps.reg.outputs.reg }}
+          ref: main
+          path: registry
+          token: ${{ steps.tok.outputs.tok }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 生成 entry
+        id: pub
+        run: |
+          cd registry
+          python ../scripts/.github/scripts/publish_action.py \
+            --tag-name "${{ inputs.tag_name }}" \
+            --module-name "${{ inputs.module_name }}" \
+            --registry-path "." \
+            --ruleset-path "../ruleset" \
+            --tag-prefix "${{ inputs.tag_prefix }}" \
+            --templates-dir "${{ inputs.templates_dir }}" \
+            --source-url "${{ inputs.source_url }}" \
+            --strip-prefix "${{ inputs.strip_prefix }}"
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+  pr:
+    runs-on: ubuntu-latest
+    needs: [detect, publish]
+    if: needs.publish.outputs.branch_name
+    outputs:
+      url: ${{ steps.pr.outputs.url }}
+    steps:
+      - name: 确定 registry
+        id: reg
+        run: |
+          REG="${{ inputs.registry || format('{0}/{1}', github.repository_owner, github.event.repository.name) }}"
+          echo "reg=$REG" >> $GITHUB_OUTPUT
+
+      - name: 确定 token
+        id: tok
+        run: |
+          if [ "${{ needs.detect.outputs.token_type }}" = "PAT" ]; then
+            echo "tok=${{ secrets.publish_token }}" >> $GITHUB_OUTPUT
+          else
+            echo "tok=${{ github.token }}" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.detect.outputs.target || steps.reg.outputs.reg }}
+          ref: main
+          path: registry
+          token: ${{ steps.tok.outputs.tok }}
+          fetch-depth: 0
+
+      - name: 推送分支
+        run: |
+          cd registry
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${{ needs.publish.outputs.branch_name }}"
+          git add -A
+          git commit -m "${{ needs.publish.outputs.module_name }}.${{ needs.publish.outputs.version }}"
+          git push origin "${{ needs.publish.outputs.branch_name }}"
+
+      - name: 创建 PR
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.tok.outputs.tok }}
+          script: |
+            const mod = '${{ needs.publish.outputs.module_name }}';
+            const ver = '${{ needs.publish.outputs.version }}';
+            const branch = '${{ needs.publish.outputs.branch_name }}';
+            const repo = '${{ github.repository }}';
+            const strategy = '${{ needs.detect.outputs.strategy }}';
+            const target = '${{ needs.detect.outputs.target || steps.reg.outputs.reg }}';
+
+            let [owner, name] = strategy === 'EXTERNAL_FORK'
+              ? '${{ steps.reg.outputs.reg }}'.split('/')
+              : target.split('/');
+
+            const head = strategy === 'EXTERNAL_FORK'
+              ? `${target.split('/')[0]}:${branch}`
+              : branch;
+
+            const title = `Add ${mod}@${ver}`;
+            const body = `### ${mod}@${ver}\n\nRelease: https://github.com/${repo}/releases/tag/${{ inputs.tag_name }}\n\n---\nGenerated by publish-to-bcr`;
+
+            try {
+              const r = await github.rest.pulls.create({ owner, repo: name, title, head, base: 'main', body, draft: ${{ inputs.draft }} });
+              core.setOutput('url', r.data.html_url);
+            } catch (e) {
+              if (e.status === 422) core.setOutput('url', `https://github.com/${owner}/${name}/pulls`);
+              else throw e;
+            }
