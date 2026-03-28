@@ -1,6 +1,8 @@
 name: Publish Registry to gh-pages
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main, master]
     paths:

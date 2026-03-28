@@ -26,9 +26,8 @@ def load_json_or_yaml(content: str, ext: str) -> Any:
 
 
 def diff_dicts(old: Dict, new: Dict, path: str = "") -> List[str]:
-    """Generate a simple diff between two dicts."""
+    """Generate a diff between two dicts."""
     changes = []
-
     all_keys = set(old.keys()) | set(new.keys())
 
     for key in sorted(all_keys):
@@ -43,6 +42,40 @@ def diff_dicts(old: Dict, new: Dict, path: str = "") -> List[str]:
         elif old[key] != new[key]:
             changes.append(f"- {key_path}: {json.dumps(old[key])}")
             changes.append(f"+ {key_path}: {json.dumps(new[key])}")
+
+    return changes
+
+
+def diff_text_lines(old: str, new: str) -> List[str]:
+    """Generate a line-by-line diff for text files."""
+    old_lines = old.splitlines()
+    new_lines = new.splitlines()
+
+    changes = []
+
+    # Simple line-by-line comparison (skip identical lines)
+    old_idx = 0
+    new_idx = 0
+
+    while old_idx < len(old_lines) or new_idx < len(new_lines):
+        if old_idx >= len(old_lines):
+            # Only new lines remaining
+            changes.append(f"+ {new_lines[new_idx]}")
+            new_idx += 1
+        elif new_idx >= len(new_lines):
+            # Only old lines remaining
+            changes.append(f"- {old_lines[old_idx]}")
+            old_idx += 1
+        elif old_lines[old_idx] == new_lines[new_idx]:
+            # Same line, skip or show as context
+            old_idx += 1
+            new_idx += 1
+        else:
+            # Different lines
+            changes.append(f"- {old_lines[old_idx]}")
+            changes.append(f"+ {new_lines[new_idx]}")
+            old_idx += 1
+            new_idx += 1
 
     return changes
 
@@ -131,11 +164,24 @@ def read_file_content(path: Path) -> Optional[str]:
         return None
 
 
+def get_overlay_files(version_path: Path) -> List[str]:
+    """Get list of overlay files for a version."""
+    overlay_path = version_path / "overlay"
+    if not overlay_path.exists():
+        return []
+
+    files = []
+    for item in overlay_path.iterdir():
+        if item.is_file():
+            files.append(f"overlay/{item.name}")
+    return sorted(files)
+
+
 def diff_version(registry: RegistryClient, module_name: str, version: str) -> Optional[str]:
     """Generate diff for a specific new version against its previous version."""
     version_path = registry.modules_path / module_name / version
 
-    lines = [f"## {module_name}@{version}\n"]
+    lines = [f"## `{module_name}@{version}`\n"]
 
     # Get previous version from metadata
     metadata = registry.get_metadata(module_name)
@@ -155,8 +201,14 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
         # Fallback: just get the last version
         prev_version = versions[-1] if versions else None
 
-    # Files to compare
-    files_to_diff = ['source.json', 'MODULE.bazel', 'presubmit.yml']
+    if prev_version:
+        lines.append(f"*Comparing against previous version: `{prev_version}`*\n")
+
+    # Files to compare (including overlay files)
+    base_files = ['source.json', 'MODULE.bazel', 'presubmit.yml']
+    overlay_files = get_overlay_files(version_path)
+    files_to_diff = base_files + overlay_files
+
     has_changes = False
 
     for filename in files_to_diff:
@@ -173,9 +225,11 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
             old_content = None
 
         if old_content is None:
-            lines.append(f"### {filename} (new)")
-            lines.append("```")
-            lines.append(new_content)
+            lines.append(f"### `{filename}` (new)")
+            lines.append("")
+            ext = get_file_ext(filename)
+            lines.append(f"```{ext}")
+            lines.append(new_content.rstrip())
             lines.append("```")
             lines.append("")
             has_changes = True
@@ -183,26 +237,34 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
 
         if old_content != new_content:
             has_changes = True
-            lines.append(f"### {filename}")
+            lines.append(f"### `{filename}`")
+            lines.append("")
 
             # Try structured diff for JSON/YAML
-            if filename.endswith('.json') or filename.endswith('.yml') or filename.endswith('.yaml'):
+            ext = Path(filename).suffix
+            if ext in ['.json', '.yml', '.yaml']:
                 try:
-                    old_data = load_json_or_yaml(old_content, Path(filename).suffix)
-                    new_data = load_json_or_yaml(new_content, Path(filename).suffix)
+                    old_data = load_json_or_yaml(old_content, ext)
+                    new_data = load_json_or_yaml(new_content, ext)
                     changes = diff_dicts(old_data, new_data)
                     if changes:
                         lines.append("```diff")
                         lines.extend(changes)
                         lines.append("```")
                 except Exception:
-                    lines.append("```")
-                    lines.append(new_content)
-                    lines.append("```")
+                    # Fall back to text diff
+                    changes = diff_text_lines(old_content, new_content)
+                    if changes:
+                        lines.append("```diff")
+                        lines.extend(changes)
+                        lines.append("```")
             else:
-                lines.append("```")
-                lines.append(new_content)
-                lines.append("```")
+                # Use text diff for other files (like BUILD.bazel)
+                changes = diff_text_lines(old_content, new_content)
+                if changes:
+                    lines.append("```diff")
+                    lines.extend(changes)
+                    lines.append("```")
 
             lines.append("")
 
@@ -212,19 +274,28 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
     return "\n".join(lines)
 
 
+def get_file_ext(filename: str) -> str:
+    """Get file extension for syntax highlighting."""
+    ext = Path(filename).suffix.lstrip('.')
+    if ext == 'bazel':
+        return 'python'  # Bazel files use python-like syntax
+    return ext or 'text'
+
+
 def diff_new_module(registry: RegistryClient, module_name: str) -> Optional[str]:
     """Generate info for a completely new module."""
     module_path = registry.modules_path / module_name
     metadata_path = module_path / "metadata.json"
 
-    lines = [f"## {module_name} (new module)\n"]
+    lines = [f"## `{module_name}` 🆕 (new module)\n"]
 
     # Show metadata
     metadata_content = read_file_content(metadata_path)
     if metadata_content:
-        lines.append("### metadata.json")
+        lines.append("### `metadata.json`")
+        lines.append("")
         lines.append("```json")
-        lines.append(metadata_content)
+        lines.append(metadata_content.rstrip())
         lines.append("```")
         lines.append("")
 
@@ -235,20 +306,26 @@ def diff_new_module(registry: RegistryClient, module_name: str) -> Optional[str]
             versions.append(item.name)
 
     if versions:
-        lines.append(f"### Versions: {', '.join(sorted(versions))}")
+        lines.append(f"### Versions: {', '.join(f'`{v}`' for v in sorted(versions))}")
         lines.append("")
 
         # Show first version details
         first_version = sorted(versions)[0]
         version_path = module_path / first_version
 
-        for filename in ['source.json', 'MODULE.bazel', 'presubmit.yml']:
+        # Include overlay files
+        base_files = ['source.json', 'MODULE.bazel', 'presubmit.yml']
+        overlay_files = get_overlay_files(version_path)
+        all_files = base_files + overlay_files
+
+        for filename in all_files:
             content = read_file_content(version_path / filename)
             if content:
-                lines.append(f"### {first_version}/{filename}")
-                ext = filename.split('.')[-1]
+                lines.append(f"### `{first_version}/{filename}`")
+                lines.append("")
+                ext = get_file_ext(filename)
                 lines.append(f"```{ext}")
-                lines.append(content)
+                lines.append(content.rstrip())
                 lines.append("```")
                 lines.append("")
 
@@ -293,9 +370,9 @@ def main():
             sections.append(diff)
 
     if sections:
-        header = "# Module Version Diff\n\n"
-        header += "Comparing new/modified versions with their previous versions:\n\n"
-        report = header + "\n".join(sections)
+        header = "# 📋 Module Version Diff\n\n"
+        header += "Comparing new/modified versions with their previous versions:\n\n---\n\n"
+        report = header + "\n---\n\n".join(sections)
     else:
         report = "# No significant changes detected\n"
 
