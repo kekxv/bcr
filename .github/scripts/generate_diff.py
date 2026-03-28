@@ -6,11 +6,12 @@ Also detects modified versions via git diff.
 """
 
 import argparse
+import difflib
 import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -26,7 +27,7 @@ def load_json_or_yaml(content: str, ext: str) -> Any:
 
 
 def diff_dicts(old: Dict, new: Dict, path: str = "") -> List[str]:
-    """Generate a diff between two dicts."""
+    """Generate a diff between two dicts with path notation."""
     changes = []
     all_keys = set(old.keys()) | set(new.keys())
 
@@ -46,38 +47,44 @@ def diff_dicts(old: Dict, new: Dict, path: str = "") -> List[str]:
     return changes
 
 
-def diff_text_lines(old: str, new: str) -> List[str]:
-    """Generate a line-by-line diff for text files."""
-    old_lines = old.splitlines()
-    new_lines = new.splitlines()
+def generate_unified_diff(old_content: str, new_content: str, filename: str, context_lines: int = 3) -> str:
+    """Generate a unified diff with line numbers."""
+    old_lines = old_content.splitlines(keepends=True)
+    new_lines = new_content.splitlines(keepends=True)
 
-    changes = []
+    # Generate unified diff
+    diff = difflib.unified_diff(
+        old_lines,
+        new_lines,
+        fromfile=f"a/{filename}",
+        tofile=f"b/{filename}",
+        n=context_lines,
+        lineterm=""
+    )
 
-    # Simple line-by-line comparison (skip identical lines)
-    old_idx = 0
-    new_idx = 0
+    return "".join(diff)
 
-    while old_idx < len(old_lines) or new_idx < len(new_lines):
-        if old_idx >= len(old_lines):
-            # Only new lines remaining
-            changes.append(f"+ {new_lines[new_idx]}")
-            new_idx += 1
-        elif new_idx >= len(new_lines):
-            # Only old lines remaining
-            changes.append(f"- {old_lines[old_idx]}")
-            old_idx += 1
-        elif old_lines[old_idx] == new_lines[new_idx]:
-            # Same line, skip or show as context
-            old_idx += 1
-            new_idx += 1
-        else:
-            # Different lines
-            changes.append(f"- {old_lines[old_idx]}")
-            changes.append(f"+ {new_lines[new_idx]}")
-            old_idx += 1
-            new_idx += 1
 
-    return changes
+def count_diff_stats(old_content: str, new_content: str) -> Tuple[int, int, int]:
+    """Count additions, deletions, and changes in a diff."""
+    old_lines = old_content.splitlines()
+    new_lines = new_content.splitlines()
+
+    matcher = difflib.SequenceMatcher(None, old_lines, new_lines)
+
+    additions = 0
+    deletions = 0
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'replace':
+            deletions += i2 - i1
+            additions += j2 - j1
+        elif tag == 'delete':
+            deletions += i2 - i1
+        elif tag == 'insert':
+            additions += j2 - j1
+
+    return additions, deletions, additions + deletions
 
 
 def detect_new_versions(registry: RegistryClient) -> List[Tuple[str, Optional[str]]]:
@@ -177,6 +184,14 @@ def get_overlay_files(version_path: Path) -> List[str]:
     return sorted(files)
 
 
+def get_file_ext(filename: str) -> str:
+    """Get file extension for syntax highlighting."""
+    ext = Path(filename).suffix.lstrip('.')
+    if ext == 'bazel':
+        return 'python'  # Bazel files use python-like syntax
+    return ext or 'text'
+
+
 def diff_version(registry: RegistryClient, module_name: str, version: str) -> Optional[str]:
     """Generate diff for a specific new version against its previous version."""
     version_path = registry.modules_path / module_name / version
@@ -210,6 +225,9 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
     files_to_diff = base_files + overlay_files
 
     has_changes = False
+    total_additions = 0
+    total_deletions = 0
+    file_stats = []
 
     for filename in files_to_diff:
         new_content = read_file_content(version_path / filename)
@@ -225,7 +243,7 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
             old_content = None
 
         if old_content is None:
-            lines.append(f"### `{filename}` (new)")
+            lines.append(f"### `{filename}` 🆕 (new file)")
             lines.append("")
             ext = get_file_ext(filename)
             lines.append(f"```{ext}")
@@ -233,11 +251,23 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
             lines.append("```")
             lines.append("")
             has_changes = True
+
+            # Count as all additions
+            add_count = len(new_content.splitlines())
+            file_stats.append((filename, add_count, 0, add_count))
+            total_additions += add_count
             continue
 
         if old_content != new_content:
             has_changes = True
-            lines.append(f"### `{filename}`")
+            additions, deletions, changes = count_diff_stats(old_content, new_content)
+            total_additions += additions
+            total_deletions += deletions
+            file_stats.append((filename, additions, deletions, changes))
+
+            # Show file header with stats
+            stats_str = f"+{additions}/-{deletions}"
+            lines.append(f"### `{filename}` ({stats_str})")
             lines.append("")
 
             # Try structured diff for JSON/YAML
@@ -246,24 +276,24 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
                 try:
                     old_data = load_json_or_yaml(old_content, ext)
                     new_data = load_json_or_yaml(new_content, ext)
-                    changes = diff_dicts(old_data, new_data)
-                    if changes:
+                    changes_list = diff_dicts(old_data, new_data)
+                    if changes_list:
                         lines.append("```diff")
-                        lines.extend(changes)
+                        lines.extend(changes_list)
                         lines.append("```")
                 except Exception:
-                    # Fall back to text diff
-                    changes = diff_text_lines(old_content, new_content)
-                    if changes:
+                    # Fall back to unified diff
+                    diff_text = generate_unified_diff(old_content, new_content, filename)
+                    if diff_text:
                         lines.append("```diff")
-                        lines.extend(changes)
+                        lines.append(diff_text.rstrip())
                         lines.append("```")
             else:
-                # Use text diff for other files (like BUILD.bazel)
-                changes = diff_text_lines(old_content, new_content)
-                if changes:
+                # Use unified diff for other files (like BUILD.bazel)
+                diff_text = generate_unified_diff(old_content, new_content, filename)
+                if diff_text:
                     lines.append("```diff")
-                    lines.extend(changes)
+                    lines.append(diff_text.rstrip())
                     lines.append("```")
 
             lines.append("")
@@ -271,15 +301,20 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
     if not has_changes:
         return None
 
+    # Add summary stats at the end
+    if file_stats:
+        lines.append("---")
+        lines.append("")
+        lines.append("### 📊 变更统计")
+        lines.append("")
+        lines.append("| 文件 | 新增 | 删除 | 总计 |")
+        lines.append("| :--- | :---: | :---: | :---: |")
+        for fname, add, delete, total in file_stats:
+            lines.append(f"| `{fname}` | +{add} | -{delete} | {total} |")
+        lines.append(f"| **总计** | **+{total_additions}** | **-{total_deletions}** | **{total_additions + total_deletions}** |")
+        lines.append("")
+
     return "\n".join(lines)
-
-
-def get_file_ext(filename: str) -> str:
-    """Get file extension for syntax highlighting."""
-    ext = Path(filename).suffix.lstrip('.')
-    if ext == 'bazel':
-        return 'python'  # Bazel files use python-like syntax
-    return ext or 'text'
 
 
 def diff_new_module(registry: RegistryClient, module_name: str) -> Optional[str]:
