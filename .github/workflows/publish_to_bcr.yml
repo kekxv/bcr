@@ -119,6 +119,10 @@ jobs:
         id: tok
         run: |
           if [ "${{ needs.detect.outputs.token_type }}" = "PAT" ]; then
+            if [ -z "${{ secrets.publish_token }}" ]; then
+              echo "错误: SAME_OWNER 策略需要 PAT，请设置 publish_token secret"
+              exit 1
+            fi
             echo "tok=${{ secrets.publish_token }}" >> $GITHUB_OUTPUT
           else
             echo "tok=${{ github.token }}" >> $GITHUB_OUTPUT
@@ -188,6 +192,10 @@ jobs:
         id: tok
         run: |
           if [ "${{ needs.detect.outputs.token_type }}" = "PAT" ]; then
+            if [ -z "${{ secrets.publish_token }}" ]; then
+              echo "错误: SAME_OWNER 策略需要 PAT，请设置 publish_token secret"
+              exit 1
+            fi
             echo "tok=${{ secrets.publish_token }}" >> $GITHUB_OUTPUT
           else
             echo "tok=${{ github.token }}" >> $GITHUB_OUTPUT
