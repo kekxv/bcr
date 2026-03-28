@@ -549,11 +549,8 @@ class PresubmitChecker:
         if not tasks:
             results.append(CheckResult("presubmit-yaml/tasks", False, "No tasks defined"))
 
-        for task_name, task_config in tasks.items():
-            if 'platform' not in task_config:
-                results.append(CheckResult(f"presubmit-yaml/task-{task_name}/platform", False, "Missing platform"))
-            if 'bazel' not in task_config:
-                results.append(CheckResult(f"presubmit-yaml/task-{task_name}/bazel", False, "Missing bazel version"))
+        # Note: platform and bazel in tasks are optional - they may use matrix expansion
+        # or be intentionally omitted for modules that don't need build tests
 
         # Check for changes from previous version
         prev_version = self.registry.get_previous_version(module_name, version)

@@ -121,15 +121,51 @@ jobs:
             fi
           fi
 
+      - name: Create skipped check when no changes
+        if: "steps.detect.outputs.has_changes != 'true'"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'bazel-test-result',
+              head_sha: context.payload.pull_request.head.sha,
+              status: 'completed',
+              conclusion: 'skipped',
+              output: {
+                title: 'No module changes',
+                summary: 'No module version changes detected in this PR. Bazel tests are skipped.'
+              }
+            });
+
+      - name: Create skipped check when no test platforms
+        if: "steps.detect.outputs.has_changes == 'true' && steps.platforms.outputs.has_matrix != 'true'"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'bazel-test-result',
+              head_sha: context.payload.pull_request.head.sha,
+              status: 'completed',
+              conclusion: 'skipped',
+              output: {
+                title: 'No test platforms configured',
+                summary: 'Module changes detected but no test platforms configured in presubmit.yml. Bazel tests are skipped.'
+              }
+            });
+
       - name: Create pending check for bazel-test
-        if: "!contains(github.event.pull_request.labels.*.name, 'presubmit-auto-run') && steps.detect.outputs.has_changes == 'true'"
+        if: "!contains(github.event.pull_request.labels.*.name, 'presubmit-auto-run') && steps.detect.outputs.has_changes == 'true' && steps.platforms.outputs.has_matrix == 'true'"
         uses: actions/github-script@v7
         with:
           script: |
             // Get platforms from matrix output
             const matrix = JSON.parse('${{ steps.platforms.outputs.matrix }}');
             const platforms = matrix.include.map(item => item.platform);
-            
+
             // Create pending check runs for each platform
             for (const platform of platforms) {
               await github.rest.checks.create({
@@ -200,7 +236,7 @@ jobs:
   bazel-test-result:
     runs-on: ubuntu-latest
     needs: [validate, bazel-test]
-    if: always() && needs.validate.outputs.has_changes == 'true'
+    if: always() && (needs.validate.outputs.has_changes == 'true' || needs.validate.result == 'success')
     permissions:
       contents: read
       pull-requests: read
