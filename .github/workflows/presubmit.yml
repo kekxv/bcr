@@ -132,6 +132,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # 确保行尾符不被转换，保持 LF 以匹配 source.json 中的校验和
+          autocrlf: false
 
       - name: Setup Python
         uses: actions/setup-python@v5
