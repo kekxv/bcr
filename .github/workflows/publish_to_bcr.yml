@@ -76,7 +76,7 @@ jobs:
       token_type: ${{ steps.detect.outputs.token_type }}
       target: ${{ steps.detect.outputs.registry_fork }}
     steps:
-      - name: 确定 registry
+      - name: check registry
         id: reg
         run: |
           REG="${{ inputs.registry || format('{0}/{1}', github.repository_owner, github.event.repository.name) }}"
@@ -93,7 +93,9 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: 检测 fork
+      - run: pip install pyyaml
+
+      - name: check fork
         id: detect
         run: python scripts/.github/scripts/fork_detector.py --repository "${{ github.repository }}" --registry "${{ steps.reg.outputs.reg }}" --registry-fork "${{ inputs.registry_fork }}"
         env:
@@ -144,6 +146,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - run: pip install pyyaml
 
       - name: 生成 entry
         id: pub
