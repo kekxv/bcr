@@ -11,6 +11,9 @@
 **/metadata.json text eol=lf
 *.json text eol=lf
 
+# Patch files
+*.patch text eol=lf
+
 # Shell scripts
 *.sh text eol=lf
 

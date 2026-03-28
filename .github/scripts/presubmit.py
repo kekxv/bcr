@@ -344,6 +344,43 @@ class PresubmitChecker:
                         fixable=True
                     ))
 
+        # Verify patch file integrity
+        patches = source.get('patches', {})
+        if patches:
+            patches_path = self.registry.modules_path / module_name / version / "patches"
+            for patch_file, expected_integrity in patches.items():
+                file_path = patches_path / patch_file
+                if not file_path.exists():
+                    results.append(CheckResult(
+                        f"patch/{patch_file}",
+                        False,
+                        f"Patch file not found: {patch_file}",
+                        fixable=False
+                    ))
+                    continue
+
+                # Calculate hash of patch file
+                sha256 = hashlib.sha256()
+                with open(file_path, 'rb') as f:
+                    while True:
+                        chunk = f.read(8192)
+                        if not chunk:
+                            break
+                        sha256.update(chunk)
+
+                # Convert to expected format (sha256-BASE64)
+                actual_integrity = "sha256-" + base64.b64encode(sha256.digest()).decode('ascii')
+
+                if actual_integrity == expected_integrity:
+                    results.append(CheckResult(f"patch/{patch_file}", True, "Integrity verified"))
+                else:
+                    results.append(CheckResult(
+                        f"patch/{patch_file}",
+                        False,
+                        f"Hash mismatch: expected {expected_integrity}, got {actual_integrity}",
+                        fixable=True
+                    ))
+
         return results
 
     def _verify_strip_prefix(self, archive_path: str, url: str, strip_prefix: str) -> CheckResult:
