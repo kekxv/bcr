@@ -33,10 +33,18 @@ jobs:
           python .github/scripts/generate_diff.py \
             --output .github/diff-results.md
 
-      - name: Output diff to log
+      - name: Output diff to Job Summary
         run: |
           if [ -f .github/diff-results.md ]; then
-            echo "=== Module Diff Results ==="
-            cat .github/diff-results.md
-            echo "==========================="
+            # Add header to job summary
+            echo "### 📋 Module Version Diff" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Comparing new/modified versions with their previous versions:" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            # Add diff content (GitHub renders markdown in job summary)
+            cat .github/diff-results.md >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ℹ️ No Changes Detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "No new or modified module versions found." >> $GITHUB_STEP_SUMMARY
           fi

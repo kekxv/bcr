@@ -80,19 +80,45 @@ jobs:
       - name: Run all validations
         id: validate
         run: |
+          # Run presubmit and capture output
           python .github/scripts/presubmit.py \
             --pr-number ${{ github.event.pull_request.number }} \
-            --pr-labels "${{ steps.labels.outputs.labels }}"
+            --pr-labels "${{ steps.labels.outputs.labels }}" \
+            2>&1 | tee presubmit-output.log
+          # Check exit code
+          exit_code=${PIPESTATUS[0]}
+          echo "exit_code=$exit_code" >> $GITHUB_OUTPUT
+          exit $exit_code
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Output results to log
+      - name: Output results to Job Summary
         if: always()
         run: |
+          echo "### 🔍 Presubmit 检查结果" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Output presubmit results
           if [ -f .github/presubmit-results.md ]; then
-            echo "=== Presubmit Results ==="
-            cat .github/presubmit-results.md
-            echo "========================="
+            cat .github/presubmit-results.md >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ 未找到检查结果文件，可能是脚本执行出错" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # If there were errors, show error log
+          if [ -f presubmit-output.log ]; then
+            # Check if there were failures or script errors
+            if grep -q "FAIL" .github/presubmit-results.md 2>/dev/null || grep -qE "(Traceback|Error|error|Exception)" presubmit-output.log; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "---" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### ⚠️ 错误详情" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              # Show relevant error lines
+              grep -E "(✗|FAIL|Error|error|Traceback|Exception|File \")" presubmit-output.log | head -50 >> $GITHUB_STEP_SUMMARY || true
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            fi
           fi
 
       - name: Create pending check for bazel-test
@@ -196,8 +222,19 @@ jobs:
             });
             const hasTriggerLabel = pr.labels.some(l => l.name === 'presubmit-auto-run');
 
+            // Job summary header
+            const fs = require('fs');
+            let jobSummary = '### 🧪 Bazel 测试结果\n\n';
+
             if (!hasTriggerLabel) {
               // No trigger label - mark as waiting
+              jobSummary += '| 平台 | 状态 |\n';
+              jobSummary += '| :--- | :--- |\n';
+              jobSummary += '| 所有平台 | ⏳ 等待标签 |\n';
+              jobSummary += '\n';
+              jobSummary += '> ⏳ **等待触发**: 添加 `presubmit-auto-run` 标签以触发 Bazel 测试\n';
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, jobSummary);
+
               await github.rest.checks.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -227,6 +264,13 @@ jobs:
             
             if (bazelTestJobs.length === 0) {
               // No bazel-test jobs found - likely skipped
+              jobSummary += '| 平台 | 状态 |\n';
+              jobSummary += '| :--- | :--- |\n';
+              jobSummary += '| - | ⏭️ 跳过 |\n';
+              jobSummary += '\n';
+              jobSummary += '> ⏭️ **测试跳过**: 无变更或测试被跳过\n';
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, jobSummary);
+
               await github.rest.checks.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -306,3 +350,22 @@ jobs:
               core.setOutput('result', 'failure');
               core.setFailed(`Bazel tests failed on: ${failedPlatforms.join(', ')}`);
             }
+
+            // Output test results to job summary
+            jobSummary = '### 🧪 Bazel 测试结果\n\n';
+            jobSummary += '| 平台 | 状态 |\n';
+            jobSummary += '| :--- | :--- |\n';
+            for (const job of bazelTestJobs) {
+              const platformMatch = job.name.match(/platform:\s*([^,\)]+)/);
+              const platform = platformMatch ? platformMatch[1].trim() :
+                (job.name.match(/bazel-test\s*\(([^)]+)\)/) ? job.name.match(/bazel-test\s*\(([^)]+)\)/)[1] : job.name);
+              const status = job.conclusion === 'success' ? '✅ 通过' : '❌ 失败';
+              jobSummary += `| ${platform} | ${status} |\n`;
+            }
+            jobSummary += '\n';
+            if (allPassed) {
+              jobSummary += '> ✅ **所有测试通过** 🎉\n';
+            } else {
+              jobSummary += `> ❌ **测试失败**: ${failedPlatformsList}\n`;
+            }
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, jobSummary);

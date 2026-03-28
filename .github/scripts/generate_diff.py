@@ -6,11 +6,12 @@ Also detects modified versions via git diff.
 """
 
 import argparse
+import difflib
 import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -26,9 +27,8 @@ def load_json_or_yaml(content: str, ext: str) -> Any:
 
 
 def diff_dicts(old: Dict, new: Dict, path: str = "") -> List[str]:
-    """Generate a simple diff between two dicts."""
+    """Generate a diff between two dicts with path notation."""
     changes = []
-
     all_keys = set(old.keys()) | set(new.keys())
 
     for key in sorted(all_keys):
@@ -45,6 +45,46 @@ def diff_dicts(old: Dict, new: Dict, path: str = "") -> List[str]:
             changes.append(f"+ {key_path}: {json.dumps(new[key])}")
 
     return changes
+
+
+def generate_unified_diff(old_content: str, new_content: str, filename: str, context_lines: int = 3) -> str:
+    """Generate a unified diff with line numbers."""
+    old_lines = old_content.splitlines(keepends=True)
+    new_lines = new_content.splitlines(keepends=True)
+
+    # Generate unified diff
+    diff = difflib.unified_diff(
+        old_lines,
+        new_lines,
+        fromfile=f"a/{filename}",
+        tofile=f"b/{filename}",
+        n=context_lines,
+        lineterm=""
+    )
+
+    return "".join(diff)
+
+
+def count_diff_stats(old_content: str, new_content: str) -> Tuple[int, int, int]:
+    """Count additions, deletions, and changes in a diff."""
+    old_lines = old_content.splitlines()
+    new_lines = new_content.splitlines()
+
+    matcher = difflib.SequenceMatcher(None, old_lines, new_lines)
+
+    additions = 0
+    deletions = 0
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'replace':
+            deletions += i2 - i1
+            additions += j2 - j1
+        elif tag == 'delete':
+            deletions += i2 - i1
+        elif tag == 'insert':
+            additions += j2 - j1
+
+    return additions, deletions, additions + deletions
 
 
 def detect_new_versions(registry: RegistryClient) -> List[Tuple[str, Optional[str]]]:
@@ -131,11 +171,32 @@ def read_file_content(path: Path) -> Optional[str]:
         return None
 
 
+def get_overlay_files(version_path: Path) -> List[str]:
+    """Get list of overlay files for a version."""
+    overlay_path = version_path / "overlay"
+    if not overlay_path.exists():
+        return []
+
+    files = []
+    for item in overlay_path.iterdir():
+        if item.is_file():
+            files.append(f"overlay/{item.name}")
+    return sorted(files)
+
+
+def get_file_ext(filename: str) -> str:
+    """Get file extension for syntax highlighting."""
+    ext = Path(filename).suffix.lstrip('.')
+    if ext == 'bazel':
+        return 'python'  # Bazel files use python-like syntax
+    return ext or 'text'
+
+
 def diff_version(registry: RegistryClient, module_name: str, version: str) -> Optional[str]:
     """Generate diff for a specific new version against its previous version."""
     version_path = registry.modules_path / module_name / version
 
-    lines = [f"## {module_name}@{version}\n"]
+    lines = [f"## `{module_name}@{version}`\n"]
 
     # Get previous version from metadata
     metadata = registry.get_metadata(module_name)
@@ -155,9 +216,18 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
         # Fallback: just get the last version
         prev_version = versions[-1] if versions else None
 
-    # Files to compare
-    files_to_diff = ['source.json', 'MODULE.bazel', 'presubmit.yml']
+    if prev_version:
+        lines.append(f"*Comparing against previous version: `{prev_version}`*\n")
+
+    # Files to compare (including overlay files)
+    base_files = ['source.json', 'MODULE.bazel', 'presubmit.yml']
+    overlay_files = get_overlay_files(version_path)
+    files_to_diff = base_files + overlay_files
+
     has_changes = False
+    total_additions = 0
+    total_deletions = 0
+    file_stats = []
 
     for filename in files_to_diff:
         new_content = read_file_content(version_path / filename)
@@ -173,41 +243,76 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
             old_content = None
 
         if old_content is None:
-            lines.append(f"### {filename} (new)")
-            lines.append("```")
-            lines.append(new_content)
+            lines.append(f"### `{filename}` 🆕 (new file)")
+            lines.append("")
+            ext = get_file_ext(filename)
+            lines.append(f"```{ext}")
+            lines.append(new_content.rstrip())
             lines.append("```")
             lines.append("")
             has_changes = True
+
+            # Count as all additions
+            add_count = len(new_content.splitlines())
+            file_stats.append((filename, add_count, 0, add_count))
+            total_additions += add_count
             continue
 
         if old_content != new_content:
             has_changes = True
-            lines.append(f"### {filename}")
+            additions, deletions, changes = count_diff_stats(old_content, new_content)
+            total_additions += additions
+            total_deletions += deletions
+            file_stats.append((filename, additions, deletions, changes))
+
+            # Show file header with stats
+            stats_str = f"+{additions}/-{deletions}"
+            lines.append(f"### `{filename}` ({stats_str})")
+            lines.append("")
 
             # Try structured diff for JSON/YAML
-            if filename.endswith('.json') or filename.endswith('.yml') or filename.endswith('.yaml'):
+            ext = Path(filename).suffix
+            if ext in ['.json', '.yml', '.yaml']:
                 try:
-                    old_data = load_json_or_yaml(old_content, Path(filename).suffix)
-                    new_data = load_json_or_yaml(new_content, Path(filename).suffix)
-                    changes = diff_dicts(old_data, new_data)
-                    if changes:
+                    old_data = load_json_or_yaml(old_content, ext)
+                    new_data = load_json_or_yaml(new_content, ext)
+                    changes_list = diff_dicts(old_data, new_data)
+                    if changes_list:
                         lines.append("```diff")
-                        lines.extend(changes)
+                        lines.extend(changes_list)
                         lines.append("```")
                 except Exception:
-                    lines.append("```")
-                    lines.append(new_content)
-                    lines.append("```")
+                    # Fall back to unified diff
+                    diff_text = generate_unified_diff(old_content, new_content, filename)
+                    if diff_text:
+                        lines.append("```diff")
+                        lines.append(diff_text.rstrip())
+                        lines.append("```")
             else:
-                lines.append("```")
-                lines.append(new_content)
-                lines.append("```")
+                # Use unified diff for other files (like BUILD.bazel)
+                diff_text = generate_unified_diff(old_content, new_content, filename)
+                if diff_text:
+                    lines.append("```diff")
+                    lines.append(diff_text.rstrip())
+                    lines.append("```")
 
             lines.append("")
 
     if not has_changes:
         return None
+
+    # Add summary stats at the end
+    if file_stats:
+        lines.append("---")
+        lines.append("")
+        lines.append("### 📊 变更统计")
+        lines.append("")
+        lines.append("| 文件 | 新增 | 删除 | 总计 |")
+        lines.append("| :--- | :---: | :---: | :---: |")
+        for fname, add, delete, total in file_stats:
+            lines.append(f"| `{fname}` | +{add} | -{delete} | {total} |")
+        lines.append(f"| **总计** | **+{total_additions}** | **-{total_deletions}** | **{total_additions + total_deletions}** |")
+        lines.append("")
 
     return "\n".join(lines)
 
@@ -217,14 +322,15 @@ def diff_new_module(registry: RegistryClient, module_name: str) -> Optional[str]
     module_path = registry.modules_path / module_name
     metadata_path = module_path / "metadata.json"
 
-    lines = [f"## {module_name} (new module)\n"]
+    lines = [f"## `{module_name}` 🆕 (new module)\n"]
 
     # Show metadata
     metadata_content = read_file_content(metadata_path)
     if metadata_content:
-        lines.append("### metadata.json")
+        lines.append("### `metadata.json`")
+        lines.append("")
         lines.append("```json")
-        lines.append(metadata_content)
+        lines.append(metadata_content.rstrip())
         lines.append("```")
         lines.append("")
 
@@ -235,20 +341,26 @@ def diff_new_module(registry: RegistryClient, module_name: str) -> Optional[str]
             versions.append(item.name)
 
     if versions:
-        lines.append(f"### Versions: {', '.join(sorted(versions))}")
+        lines.append(f"### Versions: {', '.join(f'`{v}`' for v in sorted(versions))}")
         lines.append("")
 
         # Show first version details
         first_version = sorted(versions)[0]
         version_path = module_path / first_version
 
-        for filename in ['source.json', 'MODULE.bazel', 'presubmit.yml']:
+        # Include overlay files
+        base_files = ['source.json', 'MODULE.bazel', 'presubmit.yml']
+        overlay_files = get_overlay_files(version_path)
+        all_files = base_files + overlay_files
+
+        for filename in all_files:
             content = read_file_content(version_path / filename)
             if content:
-                lines.append(f"### {first_version}/{filename}")
-                ext = filename.split('.')[-1]
+                lines.append(f"### `{first_version}/{filename}`")
+                lines.append("")
+                ext = get_file_ext(filename)
                 lines.append(f"```{ext}")
-                lines.append(content)
+                lines.append(content.rstrip())
                 lines.append("```")
                 lines.append("")
 
@@ -293,9 +405,36 @@ def main():
             sections.append(diff)
 
     if sections:
-        header = "# Module Version Diff\n\n"
+        # Build summary table
+        table_lines = []
+        table_lines.append("| 模块 | 版本 | 变更文件 |")
+        table_lines.append("| :--- | :--- | :--- |")
+
+        for module_name, version in all_changes:
+            version_path = registry.modules_path / module_name / version if version else None
+            changed_files = []
+
+            if version_path:
+                # Check which files changed
+                for filename in ['source.json', 'MODULE.bazel', 'presubmit.yml']:
+                    if (version_path / filename).exists():
+                        changed_files.append(filename)
+
+                # Add overlay files
+                overlay_files = get_overlay_files(version_path)
+                changed_files.extend(overlay_files)
+
+            files_str = ", ".join(changed_files) if changed_files else "全部"
+            status = version if version else "🆕 新模块"
+            table_lines.append(f"| `{module_name}` | {status} | {files_str} |")
+
+        table_lines.append("")
+        table_lines.append("---")
+        table_lines.append("")
+
+        header = "# 📋 Module Version Diff\n\n"
         header += "Comparing new/modified versions with their previous versions:\n\n"
-        report = header + "\n".join(sections)
+        report = header + "\n".join(table_lines) + "\n---\n\n".join(sections)
     else:
         report = "# No significant changes detected\n"
 
