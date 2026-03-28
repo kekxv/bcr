@@ -86,8 +86,8 @@ def generate_modules_html(registry: RegistryClient, repo_name: str = "your-org/b
                     Deprecated: {module['deprecated']}
                 </div>'''
 
-        # Quick dep code (use latest version)
-        latest_version = versions[0] if versions else '1.0.0'
+        # Quick dep code (use latest version - last in array)
+        latest_version = versions[-1] if versions else '1.0.0'
         quick_dep = f"bazel_dep(name = '{module_name}', version = '{latest_version}')"
 
         # Build data attributes for search

@@ -16,12 +16,20 @@ class Version:
     minor: int = 0
     patch: int = 0
     prerelease: Optional[str] = None
+    bcr_patch: int = 0  # BCR-specific patch number (e.g., .bcr.1)
 
     @classmethod
     def parse(cls, version_str: str) -> "Version":
         """Parse a version string into a Version object."""
         # Remove leading 'v' if present
         version_str = version_str.lstrip('v')
+
+        # Check for BCR patch suffix (e.g., .bcr.1)
+        bcr_match = re.match(r'^(.+)\.bcr\.(\d+)$', version_str)
+        bcr_patch = 0
+        if bcr_match:
+            version_str = bcr_match.group(1)
+            bcr_patch = int(bcr_match.group(2))
 
         # Parse semver components
         match = re.match(
@@ -36,26 +44,32 @@ class Version:
         patch = int(match.group(3)) if match.group(3) else 0
         prerelease = match.group(4)
 
-        return cls(major, minor, patch, prerelease)
+        return cls(major, minor, patch, prerelease, bcr_patch)
 
     def __str__(self) -> str:
         result = f"{self.major}.{self.minor}.{self.patch}"
         if self.prerelease:
             result += f"-{self.prerelease}"
+        if self.bcr_patch > 0:
+            result += f".bcr.{self.bcr_patch}"
         return result
 
     def __lt__(self, other: "Version") -> bool:
+        # First compare major.minor.patch
         if (self.major, self.minor, self.patch) != (other.major, other.minor, other.patch):
             return (self.major, self.minor, self.patch) < (other.major, other.minor, other.patch)
-        # Prerelease versions are lower than release versions
+
+        # Then compare prerelease (prerelease < release)
         if self.prerelease is None and other.prerelease is not None:
             return False
         if self.prerelease is not None and other.prerelease is None:
             return True
-        if self.prerelease == other.prerelease:
-            return False
-        # Compare prerelease strings
-        return self.prerelease < other.prerelease
+        if self.prerelease != other.prerelease:
+            return (self.prerelease or "") < (other.prerelease or "")
+
+        # Finally compare bcr_patch (higher bcr_patch = newer)
+        # e.g., 0.11.0.bcr.1 > 0.11.0
+        return self.bcr_patch < other.bcr_patch
 
     def __le__(self, other: "Version") -> bool:
         return self == other or self < other
@@ -69,8 +83,8 @@ class Version:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Version):
             return False
-        return (self.major, self.minor, self.patch, self.prerelease) == \
-               (other.major, other.minor, other.patch, other.prerelease)
+        return (self.major, self.minor, self.patch, self.prerelease, self.bcr_patch) == \
+               (other.major, other.minor, other.patch, other.prerelease, other.bcr_patch)
 
 
 class RegistryClient:
@@ -177,7 +191,7 @@ class RegistryClient:
                 if (item / "source.json").exists():
                     versions.append(item.name)
 
-        # Sort versions semantically
+        # Sort versions semantically (oldest first, newest last)
         try:
             versions.sort(key=lambda v: Version.parse(v))
         except ValueError:
