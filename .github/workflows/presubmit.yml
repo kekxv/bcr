@@ -256,7 +256,21 @@ jobs:
               }
             }
 
-            // Create final check result
+            // Create final check result with friendly summary
+            const passedPlatforms = bazelTestJobs.filter(j => j.conclusion === 'success').map(j => {
+              const match = j.name.match(/bazel-test\s*\(([^)]+)\)/);
+              return match ? match[1] : j.name;
+            });
+            const failedPlatformsList = failedPlatforms.join(', ');
+            const passedPlatformsList = passedPlatforms.join(', ');
+
+            let summaryText = '';
+            if (allPassed) {
+              summaryText = `✅ **All tests passed on ${bazelTestJobs.length} platform(s)**\n\n**Platforms:** ${passedPlatformsList}\n\nSee individual "bazel-test (platform)" check runs for detailed results.`;
+            } else {
+              summaryText = `❌ **Tests failed on ${failedPlatforms.length} platform(s)**\n\n**Failed:** ${failedPlatformsList}\n**Passed:** ${passedPlatformsList || 'none'}\n\nSee individual "bazel-test (platform)" check runs for detailed error messages.`;
+            }
+
             if (allPassed) {
               await github.rest.checks.create({
                 owner: context.repo.owner,
@@ -266,8 +280,8 @@ jobs:
                 status: 'completed',
                 conclusion: 'success',
                 output: {
-                  title: 'All Bazel tests passed',
-                  summary: `All ${bazelTestJobs.length} platform tests completed successfully.`
+                  title: '✅ All Bazel tests passed',
+                  summary: summaryText
                 }
               });
               core.setOutput('result', 'success');
@@ -280,8 +294,8 @@ jobs:
                 status: 'completed',
                 conclusion: 'failure',
                 output: {
-                  title: 'Bazel tests failed',
-                  summary: `Failed platforms: ${failedPlatforms.join(', ')}`
+                  title: '❌ Bazel tests failed',
+                  summary: summaryText
                 }
               });
               core.setOutput('result', 'failure');
