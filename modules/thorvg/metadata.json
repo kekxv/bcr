@@ -12,7 +12,8 @@
         "github:thorvg/thorvg"
     ],
     "versions": [
-        "1.0.1.bcr.1"
+        "1.0.1.bcr.1",
+        "1.0.1.bcr.2"
     ],
     "yanked_versions": {
     }
