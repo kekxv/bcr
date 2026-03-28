@@ -63,6 +63,10 @@ def run_bazel_tests(platform: str, registry_path: Path = None):
     # Ensure absolute path
     registry_path = registry_path.absolute()
 
+    # Convert to file URL (Windows paths need forward slashes)
+    # On Windows, D:\path becomes file:///D:/path
+    registry_url = registry_path.as_uri()
+
     # Read detected changes
     changes_file = registry_path / 'changes.json'
     if not changes_file.exists():
@@ -160,7 +164,7 @@ bazel_dep(name = "{module_name}", version = "{version}")
 
                     result = subprocess.run(
                         ['bazel', 'build', actual_target,
-                         '--registry=file://' + str(registry_path),
+                         '--registry=' + registry_url,
                          '--registry=https://bcr.bazel.build',
                          '--enable_bzlmod'],
                         cwd=test_dir,
@@ -184,7 +188,7 @@ bazel_dep(name = "{module_name}", version = "{version}")
 
                     result = subprocess.run(
                         ['bazel', 'test', actual_target,
-                         '--registry=file://' + str(registry_path),
+                         '--registry=' + registry_url,
                          '--registry=https://bcr.bazel.build',
                          '--enable_bzlmod'],
                         cwd=test_dir,
