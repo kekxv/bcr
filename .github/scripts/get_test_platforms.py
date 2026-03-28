@@ -105,39 +105,39 @@ def main():
     parser.add_argument('--changes-json', required=True, help='JSON file with changed modules')
     parser.add_argument('--output', help='Output JSON file path')
     args = parser.parse_args()
-    
+
     # Read changes
     changes_path = Path(args.changes_json)
     if not changes_path.exists():
         print(f"Error: Changes file not found: {changes_path}", file=sys.stderr)
         sys.exit(1)
-    
+
     with open(changes_path, 'r') as f:
         changes = json.load(f)
-    
+
     # Get all_changes or modified_versions or new_versions
     all_changes = changes.get('all_changes', {})
     if not all_changes:
         all_changes = changes.get('modified_versions', {})
     if not all_changes:
         all_changes = changes.get('new_versions', {})
-    
+
     if not all_changes:
         # No changes - output empty matrix
         output = {'include': []}
     else:
         modules_path = Path(args.registry_path) / 'modules'
         runners = get_required_runners(modules_path, all_changes)
-        
-        # Build matrix include list
-        # Map runners back to platform names for display
+
+        # Build matrix include list (only platform, not bazel version)
+        # Bazel version testing is handled internally by run_bazel_tests.py
         runner_to_platform = {
             'ubuntu-latest': 'ubuntu2404',
             'ubuntu-24.04-arm': 'linux_arm64',
             'macos-latest': 'macos',
             'windows-latest': 'windows',
         }
-        
+
         include = []
         for runner in sorted(runners):
             platform = runner_to_platform.get(runner, runner)
@@ -145,16 +145,16 @@ def main():
                 'platform': platform,
                 'os': runner
             })
-        
+
         output = {'include': include}
-    
+
     json_output = json.dumps(output, indent=2)
-    
+
     if args.output:
         Path(args.output).write_text(json_output)
     else:
         print(json_output)
-    
+
     # Set GitHub Actions outputs if running in CI
     if 'GITHUB_OUTPUT' in os.environ:
         with open(os.environ['GITHUB_OUTPUT'], 'a') as f:

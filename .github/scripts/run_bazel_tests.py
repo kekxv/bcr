@@ -5,6 +5,7 @@ Run Bazel tests according to presubmit.yml configuration.
 
 import argparse
 import json
+import os
 import yaml
 import subprocess
 import sys
@@ -14,6 +15,7 @@ from pathlib import Path
 def parse_args():
     parser = argparse.ArgumentParser(description='Run Bazel tests for BCR modules')
     parser.add_argument('--platform', required=True, help='Platform name (e.g., ubuntu2404, macos, windows, linux_arm64)')
+    parser.add_argument('--changes-json', required=True, help='JSON file with changed modules')
     return parser.parse_args()
 
 
@@ -53,13 +55,13 @@ def should_run_for_platform(presubmit_platforms: list, current_platform: str) ->
     return False
 
 
-def run_bazel_tests(platform: str, registry_path: Path = None):
+def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path: Path = None):
     """Run bazel tests according to presubmit.yml for changed modules."""
 
     # Use current directory as registry if not specified
     if registry_path is None:
         registry_path = Path.cwd()
-    
+
     # Ensure absolute path
     registry_path = registry_path.absolute()
 
@@ -68,15 +70,19 @@ def run_bazel_tests(platform: str, registry_path: Path = None):
     registry_url = registry_path.as_uri()
 
     # Read detected changes
-    changes_file = registry_path / 'changes.json'
+    if changes_json_path:
+        changes_file = Path(changes_json_path)
+    else:
+        changes_file = registry_path / 'changes.json'
+
     if not changes_file.exists():
         print(f"Error: changes.json not found at {changes_file}", file=sys.stderr)
         return 1
-    
+
     with open(changes_file) as f:
         changes = json.load(f)
 
-    # Get all changes (new + modified versions)
+    # Get all_changes or modified_versions or new_versions
     all_changes = changes.get('all_changes', {})
     if not all_changes:
         all_changes = changes.get('modified_versions', {})
@@ -119,88 +125,91 @@ def run_bazel_tests(platform: str, registry_path: Path = None):
 
             print(f"[OK] Platform '{platform}' matched presubmit.yml matrix: {presubmit_platforms}")
 
+            # Get all bazel versions from presubmit.yml and test each one
             bazel_versions = matrix.get('bazel', ['7.x'])
             tasks = config.get('tasks', {})
 
-            # Shutdown any existing Bazel server to avoid conflicts
-            subprocess.run(['bazel', 'shutdown'], capture_output=True)
+            for bazel_ver in bazel_versions:
+                print(f"\n>>> Testing with Bazel version: {bazel_ver} <<<")
 
-            for task_name, task_config in tasks.items():
-                build_targets = task_config.get('build_targets', [])
-                test_targets = task_config.get('test_targets', [])
+                # Shutdown any existing Bazel server to avoid conflicts
+                subprocess.run(['bazel', 'shutdown'], capture_output=True)
 
-                if not build_targets and not test_targets:
-                    print(f"  No targets defined for task: {task_name}")
-                    continue
+                # Set the bazel version using bazelisk via USE_BAZEL_VERSION env var
+                env = os.environ.copy()
+                env['USE_BAZEL_VERSION'] = bazel_ver
 
-                # Use first bazel version
-                bazel_version = bazel_versions[0]
+                for task_name, task_config in tasks.items():
+                    build_targets = task_config.get('build_targets', [])
+                    test_targets = task_config.get('test_targets', [])
 
-                print(f"\n  Task: {task_name}")
-                print(f"  Bazel version: {bazel_version}")
+                    if not build_targets and not test_targets:
+                        print(f"  No targets defined for task: {task_name}")
+                        continue
 
-                # Create temporary test workspace
-                test_dir = Path('/tmp/bcr_test') / f"{module_name}_{version}"
-                test_dir.mkdir(parents=True, exist_ok=True)
+                    print(f"\n  Task: {task_name}")
 
-                # Create MODULE.bazel
-                module_content = f'''module(name = "test_workspace", version = "1.0.0")
+                    # Create temporary test workspace
+                    test_dir = Path('/tmp/bcr_test') / f"{module_name}_{version}"
+                    test_dir.mkdir(parents=True, exist_ok=True)
+
+                    # Create MODULE.bazel
+                    module_content = f'''module(name = "test_workspace", version = "1.0.0")
 
 bazel_dep(name = "{module_name}", version = "{version}")
 '''
-                (test_dir / "MODULE.bazel").write_text(module_content)
+                    (test_dir / "MODULE.bazel").write_text(module_content)
 
-                # Create BUILD.bazel
-                (test_dir / "BUILD.bazel").write_text('')
+                    # Create BUILD.bazel
+                    (test_dir / "BUILD.bazel").write_text('')
 
-                # Run build targets
-                for target in build_targets:
-                    # Replace ${{ }} variables
-                    actual_target = target.replace('${{ module }}', module_name)
-                    # Keep external module targets as-is (@module//:target)
-                    # Only modify targets that reference the module being tested
-                    
-                    print(f"\n    Building: {target}")
+                    # Run build targets
+                    for target in build_targets:
+                        # Replace ${{ }} variables
+                        actual_target = target.replace('${{ module }}', module_name)
 
-                    result = subprocess.run(
-                        ['bazel', 'build', actual_target,
-                         '--registry=' + registry_url,
-                         '--registry=https://bcr.bazel.build',
-                         '--enable_bzlmod'],
-                        cwd=test_dir,
-                        capture_output=True,
-                        text=True
-                    )
+                        print(f"\n    Building: {target}")
 
-                    if result.returncode != 0:
-                        print(f"    FAILED: {result.stderr}")
-                        failed.append(f"{module_name}@{version}: {target}")
-                    else:
-                        print(f"    SUCCESS")
+                        result = subprocess.run(
+                            ['bazel', 'build', actual_target,
+                             '--registry=' + registry_url,
+                             '--registry=https://bcr.bazel.build',
+                             '--enable_bzlmod'],
+                            cwd=test_dir,
+                            capture_output=True,
+                            text=True,
+                            env=env
+                        )
 
-                # Run test targets
-                for target in test_targets:
-                    # Replace ${{ }} variables
-                    actual_target = target.replace('${{ module }}', module_name)
-                    # Keep external module targets as-is
-                    
-                    print(f"\n    Testing: {target}")
+                        if result.returncode != 0:
+                            print(f"    FAILED: {result.stderr}")
+                            failed.append(f"{module_name}@{version}: {target} (Bazel {bazel_ver})")
+                        else:
+                            print(f"    SUCCESS")
 
-                    result = subprocess.run(
-                        ['bazel', 'test', actual_target,
-                         '--registry=' + registry_url,
-                         '--registry=https://bcr.bazel.build',
-                         '--enable_bzlmod'],
-                        cwd=test_dir,
-                        capture_output=True,
-                        text=True
-                    )
+                    # Run test targets
+                    for target in test_targets:
+                        # Replace ${{ }} variables
+                        actual_target = target.replace('${{ module }}', module_name)
 
-                    if result.returncode != 0:
-                        print(f"    FAILED: {result.stderr}")
-                        failed.append(f"{module_name}@{version}: {target}")
-                    else:
-                        print(f"    SUCCESS")
+                        print(f"\n    Testing: {target}")
+
+                        result = subprocess.run(
+                            ['bazel', 'test', actual_target,
+                             '--registry=' + registry_url,
+                             '--registry=https://bcr.bazel.build',
+                             '--enable_bzlmod'],
+                            cwd=test_dir,
+                            capture_output=True,
+                            text=True,
+                            env=env
+                        )
+
+                        if result.returncode != 0:
+                            print(f"    FAILED: {result.stderr}")
+                            failed.append(f"{module_name}@{version}: {target} (Bazel {bazel_ver})")
+                        else:
+                            print(f"    SUCCESS")
 
     # Summary
     print(f"\n{'='*60}")
@@ -224,4 +233,4 @@ bazel_dep(name = "{module_name}", version = "{version}")
 
 if __name__ == '__main__':
     args = parse_args()
-    sys.exit(run_bazel_tests(args.platform))
+    sys.exit(run_bazel_tests(args.platform, changes_json_path=args.changes_json))

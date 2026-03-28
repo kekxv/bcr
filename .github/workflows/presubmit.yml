@@ -164,7 +164,7 @@ jobs:
       - name: Run Bazel tests for ${{ matrix.platform }}
         if: steps.check-platform.outputs.needed == 'true'
         run: |
-          python .github/scripts/run_bazel_tests.py --platform ${{ matrix.platform }}
+          python .github/scripts/run_bazel_tests.py --platform ${{ matrix.platform }} --changes-json changes.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
