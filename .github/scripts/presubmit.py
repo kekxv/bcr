@@ -621,7 +621,8 @@ class PresubmitChecker:
 
     def generate_report(self, output_path: Optional[str] = None) -> str:
         """Generate a markdown report of all results."""
-        lines = ["# Presubmit Check Results\n"]
+        # Start with summary table format
+        lines = ["| 检查项 | 状态 |\n", "| :--- | :--- |\n"]
 
         total_checks = 0
         passed_checks = 0
@@ -630,34 +631,39 @@ class PresubmitChecker:
         for module_name, versions in self.results.items():
             for version, results in versions.items():
                 version_str = f"@{version}" if version else ""
-                lines.append(f"## {module_name}{version_str}\n")
+                module_header = f"**{module_name}{version_str}**"
 
                 for result in results:
                     total_checks += 1
-                    status = "✅ PASS" if result.passed else "❌ FAIL"
+                    status = "✅" if result.passed else "❌"
                     if not result.passed:
                         failed_checks.append((module_name, version, result))
                     else:
                         passed_checks += 1
 
-                    lines.append(f"- {status}: {result.name}")
-                    if result.message:
-                        lines.append(f"  - {result.message}")
-                lines.append("")
+                    check_name = result.name
+                    message = result.message if result.message else ""
+                    lines.append(f"| {module_header}: {check_name} | {status} {message} |\n")
 
-        # Summary
-        lines.append("## Summary\n")
-        lines.append(f"- **Total Checks**: {total_checks}")
-        lines.append(f"- **Passed**: {passed_checks}")
-        lines.append(f"- **Failed**: {len(failed_checks)}")
+        # Summary section
+        lines.append("\n")
+        lines.append("---\n\n")
+        lines.append("### 统计\n\n")
+        lines.append(f"| 总计 | 通过 | 失败 |\n")
+        lines.append(f"| :---: | :---: | :---: |\n")
+        lines.append(f"| {total_checks} | {passed_checks} | {len(failed_checks)} |\n")
 
         if failed_checks:
-            lines.append("\n### Failed Checks\n")
+            lines.append("\n### ❌ 失败的检查\n\n")
             for module_name, version, result in failed_checks:
                 version_str = f"@{version}" if version else ""
-                lines.append(f"- `{module_name}{version_str}`: {result.name} - {result.message}")
+                lines.append(f"- `{module_name}{version_str}`: **{result.name}**")
+                if result.message:
+                    lines.append(f"  - {result.message}")
+                if result.fixable:
+                    lines.append(f"  - 💡 可通过 `--fix` 参数自动修复")
 
-        report = "\n".join(lines)
+        report = "".join(lines)
 
         if output_path:
             Path(output_path).write_text(report)

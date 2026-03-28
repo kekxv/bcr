@@ -370,9 +370,36 @@ def main():
             sections.append(diff)
 
     if sections:
+        # Build summary table
+        table_lines = []
+        table_lines.append("| 模块 | 版本 | 变更文件 |")
+        table_lines.append("| :--- | :--- | :--- |")
+
+        for module_name, version in all_changes:
+            version_path = registry.modules_path / module_name / version if version else None
+            changed_files = []
+
+            if version_path:
+                # Check which files changed
+                for filename in ['source.json', 'MODULE.bazel', 'presubmit.yml']:
+                    if (version_path / filename).exists():
+                        changed_files.append(filename)
+
+                # Add overlay files
+                overlay_files = get_overlay_files(version_path)
+                changed_files.extend(overlay_files)
+
+            files_str = ", ".join(changed_files) if changed_files else "全部"
+            status = version if version else "🆕 新模块"
+            table_lines.append(f"| `{module_name}` | {status} | {files_str} |")
+
+        table_lines.append("")
+        table_lines.append("---")
+        table_lines.append("")
+
         header = "# 📋 Module Version Diff\n\n"
-        header += "Comparing new/modified versions with their previous versions:\n\n---\n\n"
-        report = header + "\n---\n\n".join(sections)
+        header += "Comparing new/modified versions with their previous versions:\n\n"
+        report = header + "\n".join(table_lines) + "\n---\n\n".join(sections)
     else:
         report = "# No significant changes detected\n"
 
