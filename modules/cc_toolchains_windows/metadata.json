@@ -11,7 +11,8 @@
     "github:kekxv/cc_toolchains_windows"
   ],
   "versions": [
-    "20260319"
+    "20260319",
+    "20260328.13"
   ],
   "yanked_versions": {}
 }
