@@ -6,6 +6,11 @@
 **/BUILD.bazel text eol=lf
 *.bzl text eol=lf
 
+# JSON files (source.json, metadata.json, etc.)
+**/source.json text eol=lf
+**/metadata.json text eol=lf
+*.json text eol=lf
+
 # Shell scripts
 *.sh text eol=lf
 
