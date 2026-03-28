@@ -309,7 +309,7 @@ class PresubmitChecker:
         # Verify overlay file integrity
         overlay = source.get('overlay', {})
         if overlay:
-            overlay_path = self.registry.modules_path / module_name / version
+            overlay_path = self.registry.modules_path / module_name / version / "overlay"
             for overlay_file, expected_integrity in overlay.items():
                 file_path = overlay_path / overlay_file
                 if not file_path.exists():
