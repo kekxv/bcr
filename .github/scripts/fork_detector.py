@@ -45,6 +45,13 @@ def detect_strategy(repository: str, registry: str, registry_fork: str, token: s
     repo_url = f"https://api.github.com/repos/{repository}"
     repo_data = get_github_api(repo_url, token)
 
+    # 同一 owner 下的仓库，不需要 fork
+    if repo_data:
+        repo_owner = repo_data.get('owner', {}).get('login', '')
+        reg_owner = registry.split('/')[0]
+        if repo_owner == reg_owner:
+            return "SAME_OWNER", "GITHUB_TOKEN"
+
     if repo_data:
         parent = repo_data.get('parent', {})
         if parent.get('full_name') == registry:
