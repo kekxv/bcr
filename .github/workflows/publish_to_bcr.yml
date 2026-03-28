@@ -34,7 +34,7 @@ on:
       draft:
         description: 'Draft PR'
         required: false
-        default: true
+        default: false
         type: boolean
       source_url:
         description: 'Source URL'

@@ -155,8 +155,73 @@ def main():
         source["overlay"] = t['overlay']
 
     (entry / "source.json").write_text(json.dumps(source, indent=2) + '\n')
-    (entry / "MODULE.bazel").write_text(t.get('module_bazel') or f'module(name = "{args.module_name}", version = "{version}")\n')
-    (entry / "presubmit.yml").write_text(t.get('presubmit') or f"matrix:\n  platform: [ubuntu2404, macos, windows]\n  bazel: [7.x, 8.x]\ntasks:\n  verify_targets:\n    build_targets: ['@{args.module_name}//...']\n")
+
+    # MODULE.bazel - required, priority: .bcr template > root MODULE.bazel > error
+    if t.get('module_bazel'):
+        (entry / "MODULE.bazel").write_text(t['module_bazel'])
+        print("使用 .bcr/MODULE.bazel 模板")
+    else:
+        # Check root MODULE.bazel in ruleset
+        root_module = Path(args.ruleset_path) / "MODULE.bazel"
+        if root_module.exists():
+            content = root_module.read_text()
+            original = content
+
+            # First try placeholder substitution
+            if '{VERSION}' in content:
+                content = substitute(content, ctx)
+            else:
+                # Need to update version only in module() block, not bazel_dep etc.
+                # Find module() block and update version within it
+
+                # Match module(...) - handle multi-line with re.DOTALL
+                module_match = re.search(r'module\s*\((.*?)\)', content, re.DOTALL)
+                if module_match:
+                    module_block = module_match.group(1)
+
+                    # Check if version exists in module block
+                    if re.search(r'version\s*=\s*"[^"]*"', module_block):
+                        # Replace existing version in module block
+                        new_block = re.sub(
+                            r'version\s*=\s*"[^"]*"',
+                            f'version = "{version}"',
+                            module_block
+                        )
+                    else:
+                        # Add version after name attribute
+                        name_match = re.search(r'name\s*=\s*"[^"]*"', module_block)
+                        if name_match:
+                            # Find the position after name attribute
+                            new_block = module_block.replace(
+                                name_match.group(0),
+                                f'{name_match.group(0)}, version = "{version}"'
+                            )
+                        else:
+                            # No name in module block - shouldn't happen
+                            print("警告: module() 块中未找到 name 属性")
+                            new_block = module_block
+
+                    # Replace the entire module block
+                    content = content.replace(module_block, new_block)
+
+            (entry / "MODULE.bazel").write_text(content)
+            if content != original:
+                print("使用根目录 MODULE.bazel（版本已更新）")
+            else:
+                print("使用根目录 MODULE.bazel")
+        else:
+            print("错误: MODULE.bazel 未找到")
+            print("请提供以下之一:")
+            print("  1. .bcr/MODULE.bazel 模板文件")
+            print("  2. 根目录 MODULE.bazel 文件")
+            sys.exit(1)
+
+    # presubmit.yml - optional, use template if available, otherwise skip
+    if t.get('presubmit'):
+        (entry / "presubmit.yml").write_text(t['presubmit'])
+        print("使用 .bcr/presubmit.yml 模板")
+    else:
+        print("跳过 presubmit.yml（未找到 .bcr/presubmit.yml 模板）")
 
     if t.get('patches_data'):
         (entry / "patches").mkdir(exist_ok=True)
