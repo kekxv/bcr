@@ -11,7 +11,8 @@
     "github:kekxv/cc_toolchains_linux"
   ],
   "versions": [
-    "20260319.47"
+    "20260319.47",
+    "20260328.53"
   ],
   "yanked_versions": {}
 }
