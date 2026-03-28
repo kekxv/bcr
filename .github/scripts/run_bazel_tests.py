@@ -96,7 +96,7 @@ def run_bazel_tests(platform: str, registry_path: Path = None):
             presubmit_path = registry_path / 'modules' / module_name / version / 'presubmit.yml'
 
             if not presubmit_path.exists():
-                print(f"⏭️  Skipping: presubmit.yml not found for {module_name}@{version}")
+                print(f"[SKIP] presubmit.yml not found for {module_name}@{version}")
                 skipped.append(f"{module_name}@{version}")
                 continue
 
@@ -109,11 +109,11 @@ def run_bazel_tests(platform: str, registry_path: Path = None):
 
             # Check if current platform is in the matrix
             if not should_run_for_platform(presubmit_platforms, platform):
-                print(f"⏭️  Skipping: platform '{platform}' not in presubmit.yml matrix: {presubmit_platforms}")
+                print(f"[SKIP] platform '{platform}' not in presubmit.yml matrix: {presubmit_platforms}")
                 skipped.append(f"{module_name}@{version}:{platform}")
                 continue
 
-            print(f"✓ Platform '{platform}' matched presubmit.yml matrix: {presubmit_platforms}")
+            print(f"[OK] Platform '{platform}' matched presubmit.yml matrix: {presubmit_platforms}")
 
             bazel_versions = matrix.get('bazel', ['7.x'])
             tasks = config.get('tasks', {})
@@ -204,17 +204,17 @@ bazel_dep(name = "{module_name}", version = "{version}")
     print('='*60)
 
     if skipped:
-        print(f"\n⏭️  Skipped ({len(skipped)}):")
+        print(f"\n[SKIP] Skipped ({len(skipped)}):")
         for s in skipped:
             print(f"  - {s}")
 
     if failed:
-        print(f"\n❌ Failed ({len(failed)}):")
+        print(f"\n[FAIL] Failed ({len(failed)}):")
         for f in failed:
             print(f"  - {f}")
         return 1
     else:
-        print(f"\n✅ All tests passed!")
+        print(f"\n[PASS] All tests passed!")
         return 0
 
 
