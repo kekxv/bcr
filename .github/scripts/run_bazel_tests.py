@@ -6,59 +6,11 @@ Run Bazel tests according to presubmit.yml configuration.
 import argparse
 import json
 import os
-import requests
 import yaml
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-
-
-def create_check_run(name: str, status: str, conclusion: str = None,
-                     title: str = None, summary: str = None, details: str = None):
-    """Create a GitHub check run with detailed output."""
-    github_token = os.environ.get('GITHUB_TOKEN')
-    if not github_token:
-        print("Warning: GITHUB_TOKEN not set, skipping check run creation")
-        return None
-
-    # Get GitHub context from environment
-    api_url = os.environ.get('GITHUB_API_URL', 'https://api.github.com')
-    repository = os.environ.get('GITHUB_REPOSITORY', '')
-    sha = os.environ.get('GITHUB_SHA', '')
-
-    if not repository or not sha:
-        print("Warning: GITHUB_REPOSITORY or GITHUB_SHA not set")
-        return None
-
-    url = f"{api_url}/repos/{repository}/check-runs"
-
-    payload = {
-        "name": name,
-        "head_sha": sha,
-        "status": status,
-        "output": {
-            "title": title or name,
-            "summary": summary or "",
-            "text": details or ""
-        }
-    }
-
-    if conclusion:
-        payload["conclusion"] = conclusion
-
-    headers = {
-        "Authorization": f"token {github_token}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-
-    try:
-        response = requests.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except requests.RequestException as e:
-        print(f"Warning: Failed to create check run: {e}")
-        return None
 
 
 def parse_args():
@@ -145,7 +97,6 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
     failed = []
     skipped = []
     passed = []
-    test_details = []  # For detailed check run output
 
     for module_name, versions in all_changes.items():
         for version in versions:
@@ -236,26 +187,9 @@ bazel_dep(name = "{module_name}", version = "{version}")
                         if result.returncode != 0:
                             print(f"    FAILED: {result.stderr}")
                             failed.append(f"{module_name}@{version}: {target} (Bazel {bazel_ver})")
-                            test_details.append({
-                                'module': module_name,
-                                'version': version,
-                                'bazel': bazel_ver,
-                                'target': target,
-                                'type': 'build',
-                                'status': 'FAIL',
-                                'error': result.stderr[:500] if result.stderr else ''
-                            })
                         else:
                             print(f"    SUCCESS")
                             passed.append(f"{module_name}@{version}: {target} (Bazel {bazel_ver})")
-                            test_details.append({
-                                'module': module_name,
-                                'version': version,
-                                'bazel': bazel_ver,
-                                'target': target,
-                                'type': 'build',
-                                'status': 'PASS'
-                            })
 
                     # Run test targets
                     for target in test_targets:
@@ -278,26 +212,9 @@ bazel_dep(name = "{module_name}", version = "{version}")
                         if result.returncode != 0:
                             print(f"    FAILED: {result.stderr}")
                             failed.append(f"{module_name}@{version}: {target} (Bazel {bazel_ver})")
-                            test_details.append({
-                                'module': module_name,
-                                'version': version,
-                                'bazel': bazel_ver,
-                                'target': target,
-                                'type': 'test',
-                                'status': 'FAIL',
-                                'error': result.stderr[:500] if result.stderr else ''
-                            })
                         else:
                             print(f"    SUCCESS")
                             passed.append(f"{module_name}@{version}: {target} (Bazel {bazel_ver})")
-                            test_details.append({
-                                'module': module_name,
-                                'version': version,
-                                'bazel': bazel_ver,
-                                'target': target,
-                                'type': 'test',
-                                'status': 'PASS'
-                            })
 
     # Summary
     print(f"\n{'='*60}")
@@ -318,43 +235,6 @@ bazel_dep(name = "{module_name}", version = "{version}")
         print(f"\n[FAIL] Failed ({len(failed)}):")
         for f in failed:
             print(f"  - {f}")
-
-    # Create GitHub check run with detailed results
-    check_name = f"bazel-test ({platform})"
-    if failed:
-        conclusion = 'failure'
-        title = f"Bazel tests failed on {platform}"
-        summary = f"❌ **Failed: {len(failed)}**, ✅ **Passed: {len(passed)}**, ⏭️ **Skipped: {len(skipped)}**"
-    else:
-        conclusion = 'success'
-        title = f"All Bazel tests passed on {platform}"
-        summary = f"✅ **Passed: {len(passed)}**, ⏭️ **Skipped: {len(skipped)}**"
-
-    # Build detailed markdown output
-    details_md = ""
-    if test_details:
-        details_md += "### Test Results\n\n"
-        for detail in test_details:
-            status_icon = "✅" if detail['status'] == 'PASS' else "❌"
-            details_md += f"- {status_icon} **{detail['module']}@{detail['version']}** `{detail['target']}` (Bazel {detail['bazel']})\n"
-            if detail['status'] == 'FAIL' and detail.get('error'):
-                details_md += f"  - Error: `{detail['error'][:200]}`\n"
-
-    if skipped:
-        details_md += "\n### Skipped Tests\n\n"
-        for s in skipped:
-            details_md += f"- ⏭️ {s}\n"
-
-    create_check_run(
-        name=check_name,
-        status='completed',
-        conclusion=conclusion,
-        title=title,
-        summary=summary,
-        details=details_md
-    )
-
-    if failed:
         return 1
     else:
         print(f"\n[PASS] All tests passed!")

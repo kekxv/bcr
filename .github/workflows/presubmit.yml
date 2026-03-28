@@ -244,12 +244,14 @@ jobs:
             // Check all matrix job results
             let allPassed = true;
             let failedPlatforms = [];
-            
+
             for (const job of bazelTestJobs) {
-              // Extract platform from job name: "bazel-test (platform)" or "bazel-test"
-              const platformMatch = job.name.match(/bazel-test\s*\(([^)]+)\)/);
-              const platform = platformMatch ? platformMatch[1] : job.name;
-              
+              // Extract platform from job name: "bazel-test (platform: macos, os: macos-latest)"
+              // or legacy format: "bazel-test (macos)"
+              const platformMatch = job.name.match(/platform:\s*([^,\)]+)/);
+              const platform = platformMatch ? platformMatch[1].trim() :
+                (job.name.match(/bazel-test\s*\(([^)]+)\)/) ? job.name.match(/bazel-test\s*\(([^)]+)\)/)[1] : job.name);
+
               if (job.conclusion !== 'success') {
                 allPassed = false;
                 failedPlatforms.push(platform);
@@ -258,8 +260,9 @@ jobs:
 
             // Create final check result with friendly summary
             const passedPlatforms = bazelTestJobs.filter(j => j.conclusion === 'success').map(j => {
-              const match = j.name.match(/bazel-test\s*\(([^)]+)\)/);
-              return match ? match[1] : j.name;
+              const match = j.name.match(/platform:\s*([^,\)]+)/);
+              return match ? match[1].trim() :
+                (j.name.match(/bazel-test\s*\(([^)]+)\)/) ? j.name.match(/bazel-test\s*\(([^)]+)\)/)[1] : j.name);
             });
             const failedPlatformsList = failedPlatforms.join(', ');
             const passedPlatformsList = passedPlatforms.join(', ');
