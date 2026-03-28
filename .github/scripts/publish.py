@@ -5,10 +5,98 @@ Generate bazel_registry.json and GitHub Pages index.
 
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Any, Dict, List
 
 from registry import RegistryClient
+
+
+def get_recently_updated_modules(registry: RegistryClient, repo_name: str = "your-org/bcr", limit: int = 3) -> List[Dict[str, Any]]:
+    """Get recently updated modules based on git log."""
+    try:
+        # Get the last N commits that modified modules/
+        result = subprocess.run(
+            ['git', 'log', '-n', str(limit * 5), '--oneline', '--name-only', '--date=short', 'modules/'],
+            capture_output=True,
+            text=True,
+            cwd=os.getcwd()
+        )
+
+        if result.returncode != 0 or not result.stdout.strip():
+            # Fallback: return first N modules sorted alphabetically
+            modules = sorted(registry.get_all_modules())[:limit]
+            return [
+                {
+                    'name': m,
+                    'version': registry.get_metadata(m).get('versions', [''])[0] if registry.get_metadata(m) else '',
+                    'date': ''
+                }
+                for m in modules
+            ]
+
+        # Parse git log output to find module names
+        seen_modules = set()
+        recent_modules = []
+
+        lines = result.stdout.strip().split('\n')
+        current_date = ''
+
+        for line in lines:
+            if not line.startswith('modules/'):
+                # This is a commit line, extract date
+                parts = line.split()
+                if parts:
+                    current_date = ''  # We'll use relative date since oneline format doesn't include date
+                continue
+
+            # Extract module name from path like "modules/thorvg/1.0.1/source.json"
+            path_parts = line.strip().split('/')
+            if len(path_parts) >= 2:
+                module_name = path_parts[1]
+                if module_name not in seen_modules:
+                    seen_modules.add(module_name)
+                    metadata = registry.get_metadata(module_name)
+                    if metadata:
+                        versions = metadata.get('versions', [])
+                        recent_modules.append({
+                            'name': module_name,
+                            'version': versions[-1] if versions else '',
+                            'homepage': metadata.get('homepage', '')
+                        })
+
+                    if len(recent_modules) >= limit:
+                        break
+
+        return recent_modules
+
+    except Exception:
+        # Fallback: return first N modules
+        modules = sorted(registry.get_all_modules())[:limit]
+        return [
+            {
+                'name': m,
+                'version': registry.get_metadata(m).get('versions', [''])[0] if registry.get_metadata(m) else '',
+                'date': ''
+            }
+            for m in modules
+        ]
+
+
+def generate_recent_modules_html(recent_modules: List[Dict[str, Any]]) -> str:
+    """Generate HTML for recently updated modules list."""
+    if not recent_modules:
+        return '<span class="recent-item">No recent updates</span>'
+
+    html = ''
+    for module in recent_modules:
+        dep_code = f"bazel_dep(name = '{module['name']}', version = '{module['version']}')"
+        html += f'''<span class="recent-item" data-dep="{dep_code}" title="Click to copy">
+                <span class="recent-item-name">{module['name']}</span>
+                <span class="recent-item-version">{module['version']}</span>
+            </span>'''
+
+    return html
 
 
 def generate_registry_index(registry: RegistryClient) -> Dict[str, Any]:
@@ -95,7 +183,7 @@ def generate_modules_html(registry: RegistryClient, repo_name: str = "your-org/b
         data_versions = ' '.join(versions).lower()
         data_homepage = module['homepage'].lower() if module['homepage'] else ''
 
-        html += f'''<div class="module-card" data-name="{data_name}" data-versions="{data_versions}" data-homepage="{data_homepage}">
+        html += f'''<div class="module-card" id="module-{module_name}" data-name="{data_name}" data-versions="{data_versions}" data-homepage="{data_homepage}">
                 <div class="module-header">
                     <div class="module-title">
                         <div class="module-icon">
@@ -193,12 +281,17 @@ def generate_index_html(registry: RegistryClient, repo_name: str = "your-org/bcr
     # Generate modules HTML
     modules_html = generate_modules_html(registry, repo_name)
 
+    # Generate recently updated modules HTML
+    recent_modules = get_recently_updated_modules(registry, repo_name, limit=3)
+    recent_modules_html = generate_recent_modules_html(recent_modules)
+
     # Replace placeholders
     html = template
     html = html.replace('{{REPO_NAME}}', repo_name)
     html = html.replace('{{REGISTRY_URL}}', registry_url)
     html = html.replace('{{MODULE_COUNT}}', str(module_count))
     html = html.replace('{{VERSION_COUNT}}', str(version_count))
+    html = html.replace('{{RECENT_MODULES_HTML}}', recent_modules_html)
     html = html.replace('{{MODULES_HTML}}', modules_html)
 
     return html
@@ -218,6 +311,7 @@ def generate_index_html_inline(registry: RegistryClient, repo_name: str = "your-
 
     module_count = len(modules)
     version_count = sum(len(m['versions']) for m in modules)
+    last_updated = get_last_updated_time()
 
     repo_owner, repo = repo_name.split('/') if '/' in repo_name else ('your-org', 'bcr')
     registry_url = f"https://{repo_owner}.github.io/{repo}"
@@ -236,7 +330,7 @@ def generate_index_html_inline(registry: RegistryClient, repo_name: str = "your-
 <body>
     <h1>{repo_name}</h1>
     <p>Registry URL: {registry_url}</p>
-    <p>Modules: {module_count} | Versions: {version_count}</p>
+    <p>Modules: {module_count} | Versions: {version_count} | Last Updated: {last_updated}</p>
     {modules_html}
 </body>
 </html>'''
