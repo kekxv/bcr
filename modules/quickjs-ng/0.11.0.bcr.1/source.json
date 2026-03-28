@@ -3,7 +3,7 @@
   "strip_prefix": "quickjs-0.11.0",
   "url": "https://github.com/quickjs-ng/quickjs/archive/refs/tags/v0.11.0.tar.gz",
   "overlay": {
-    "BUILD.bazel": "sha256-FB3eUlvreMX0CD839pOkUr0m3bCH8/t4N1ayU2O3cdc=",
+    "BUILD.bazel": "sha256-mj2+SLeceDzd26Q3uVY+cbgYsyD7L46yeBz2UyTowJc=",
     "MODULE.bazel": "sha256-TOSA26s2TyOmZqWPzF0FYfzwR2lnzbnqDh8StecKY+s="
   }
 }

@@ -1,6 +1,14 @@
+load("@bazel_skylib//lib:selects.bzl", "selects")
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
 
 package(default_visibility = ["//visibility:public"])
+
+# Config setting for Linux with GCC (needs -latomic for 64-bit atomics)
+config_setting(
+    name = "linux_gcc",
+    constraint_values = ["@platforms//os:linux"],
+    flag_values = {"@bazel_tools//tools/cpp:compiler": "gcc"},
+)
 
 # Common compiler flags
 COPTS_COMMON = [
@@ -84,17 +92,15 @@ cc_library(
         "@platforms//os:windows": DEFINES_WINDOWS,
         "//conditions:default": [],
     }),
-    linkopts = select({
+    linkopts = selects.with_or({
         "@platforms//os:windows": [],
-        "@platforms//os:linux": [
+        ":linux_gcc": [
             "-lm",
             "-lpthread",
             "-ldl",
-        ] + select({
-            "@bazel_tools//tools/cpp:compiler": [],
-            "//conditions:default": ["-latomic"],
-        }),
-        "//conditions:default": [
+            "-latomic",
+        ],
+        ("@platforms//os:linux", "//conditions:default"): [
             "-lm",
             "-lpthread",
             "-ldl",
