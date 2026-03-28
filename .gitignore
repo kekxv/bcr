@@ -45,3 +45,5 @@ htmlcov/
 # uv
 .uv/
 uv.lock
+/bazel_registry.json
+/index.html

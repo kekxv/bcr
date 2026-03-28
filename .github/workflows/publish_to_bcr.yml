@@ -14,7 +14,7 @@ on:
       registry:
         description: '目标 registry (owner/repo)'
         required: false
-        default: ''
+        default: 'kekxv/bcr'
         type: string
       registry_fork:
         description: 'Registry fork'
