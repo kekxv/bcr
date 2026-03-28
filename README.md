@@ -2,6 +2,34 @@
 
 可复用的 GitHub Actions workflow，用于自动发布模块到 Bazel Central Registry。
 
+## 快速开始
+
+在 ruleset 仓库运行初始化脚本：
+
+```bash
+# 下载并运行
+curl -sSL https://raw.githubusercontent.com/kekxv/bcr/publish-to-bcr/.github/scripts/init_ruleset.py | \
+  python3 - --module-name "my_module" --bcr "kekxv/bcr"
+```
+
+或手动下载：
+
+```bash
+# 克隆后运行
+python3 .github/scripts/init_ruleset.py \
+  --module-name "my_module" \
+  --bcr "kekxv/bcr" \
+  --github-user "your_username"
+```
+
+脚本将创建：
+- `.github/workflows/publish_to_bcr.yml` - 发布 workflow
+- `.bcr/` - 模板目录
+  - `metadata.template.json`
+  - `source.template.json`
+  - `presubmit.yml`
+  - `MODULE.bazel`
+
 ## 使用方法
 
 在 ruleset 仓库创建 workflow：
@@ -16,7 +44,7 @@ on:
 
 jobs:
   publish:
-    uses: owner/bcr/.github/workflows/publish_to_bcr.yml@publish-to-bcr
+    uses: kekxv/bcr/.github/workflows/publish_to_bcr.yml@publish-to-bcr
     with:
       tag_name: ${{ github.event.release.tag_name }}
       module_name: "your_module"
