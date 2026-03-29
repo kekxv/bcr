@@ -1,5 +1,5 @@
 {
   "url": "https://github.com/kekxv/rules_objc/releases/download/0.0.2/rules_objc-0.0.2.tar.gz",
   "integrity": "sha256-/u5I2V6Ypn5MDoryUmdlQ8OQq2cx8YKo5rfFzIOIQUg=",
-  "strip_prefix": ""
+  "strip_prefix": "rules_objc-0.0.2"
 }
