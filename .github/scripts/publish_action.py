@@ -141,13 +141,26 @@ def main():
     url = args.source_url or t.get('source', {}).get('url') or f"https://github.com/{owner}/{name}/archive/refs/tags/{args.tag_name}.tar.gz"
     data, integrity = download_archive(url)
 
-    strip = args.strip_prefix or t.get('source', {}).get('strip_prefix') or f"{name}-{version}"
+    # Determine strip_prefix:
+    # 1. Command line --strip-prefix takes precedence
+    # 2. Template value (including empty string "") means user explicitly wants that value
+    # 3. Default to "{name}-{version}" only if template has no strip_prefix key at all
+    source_template = t.get('source', {})
+    if args.strip_prefix:
+        strip = args.strip_prefix
+    elif 'strip_prefix' in source_template:
+        # User explicitly set strip_prefix in template (could be "" to disable)
+        strip = source_template['strip_prefix']
+    else:
+        strip = f"{name}-{version}"
     print(f"Strip prefix: {strip}")
 
     entry = Path(args.registry_path) / "modules" / args.module_name / version
     entry.mkdir(parents=True, exist_ok=True)
 
-    source = {"url": url, "integrity": integrity, "strip_prefix": strip}
+    source = {"url": url, "integrity": integrity}
+    if strip:
+        source["strip_prefix"] = strip
     if t.get('patches'):
         source["patches"] = t['patches']
         source["patch_strip"] = 1
