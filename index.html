@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>kekxv/bcr - Bazel Registry</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --primary-bg: rgba(99, 102, 241, 0.08);
+            --accent: #ec4899;
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --text-muted: #94a3b8;
+            --border: #e2e8f0;
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+            --radius: 10px;
+            --radius-sm: 6px;
+            --code-bg: #f1f5f9;
+            --success: #10b981;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            line-height: 1.5;
+            background: var(--bg);
+            color: var(--text-primary);
+            min-height: 100vh;
+            font-size: 15px;
+        }
+        .container { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+
+        /* Header */
+        header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 14px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+        .brand { display: flex; align-items: center; gap: 10px; }
+        .logo {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: white;
+            font-size: 16px;
+        }
+        .brand-text h1 { font-size: 1.1rem; font-weight: 600; }
+        .brand-text p { font-size: 0.8rem; color: var(--text-secondary); }
+
+        /* Search */
+        .search-box { position: relative; flex: 1; max-width: 320px; }
+        .search-box input {
+            width: 100%;
+            padding: 8px 12px 8px 34px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-size: 0.9rem;
+            background: var(--bg);
+        }
+        .search-box input:focus { outline: none; border-color: var(--primary); }
+        .search-box svg {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            width: 14px;
+            height: 14px;
+        }
+        .search-stats { font-size: 0.8rem; color: var(--text-secondary); margin-top: 6px; }
+
+        /* Hero */
+        .hero { padding: 20px 0; }
+        .hero.hidden { display: none; }
+
+        /* Stats & Recent in one row */
+        .top-row {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 12px 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .stat-value { font-size: 1.4rem; font-weight: 700; color: var(--primary); }
+        .stat-label { font-size: 0.85rem; color: var(--text-secondary); }
+
+        /* Recently Updated */
+        .recent-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 12px 16px;
+            flex: 1;
+            min-width: 240px;
+        }
+        .recent-header {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .recent-header svg { width: 14px; height: 14px; color: var(--primary); }
+        .recent-list { display: flex; gap: 8px; flex-wrap: wrap; }
+        .recent-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.15s;
+        }
+        .recent-item:hover { border-color: var(--primary); background: var(--primary-bg); }
+        .recent-item.copied { border-color: var(--success); background: rgba(16,185,129,0.1); }
+        .recent-item-name { font-weight: 500; }
+        .recent-item-version {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--primary);
+        }
+
+        /* Usage Card */
+        .usage-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 14px;
+            margin-bottom: 16px;
+        }
+        .usage-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .usage-title { font-size: 0.85rem; color: var(--text-secondary); font-weight: 500; }
+        .usage-code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            background: var(--code-bg);
+            padding: 12px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            line-height: 1.6;
+        }
+        .usage-code .comment { color: var(--text-muted); }
+        .usage-code .keyword { color: var(--primary); font-weight: 500; }
+        .usage-code .string { color: var(--success); }
+        .usage-code .flag { color: var(--accent); }
+
+        /* Copy Button */
+        .copy-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 5px 10px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .copy-btn:hover { border-color: var(--primary); color: var(--primary); }
+        .copy-btn.copied { border-color: var(--success); color: var(--success); }
+        .copy-btn svg { width: 12px; height: 12px; }
+
+        /* Section */
+        .section-header { margin-bottom: 12px; }
+        .section-title { font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .section-title svg { width: 18px; height: 18px; color: var(--primary); }
+
+        /* Modules Grid */
+        .modules-grid { display: grid; gap: 10px; }
+        .module-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 14px;
+        }
+        .module-card:hover { border-color: var(--primary); }
+        .module-card.hidden { display: none; }
+
+        /* Module Header */
+        .module-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .module-title { display: flex; align-items: center; gap: 10px; }
+        .module-icon {
+            width: 28px;
+            height: 28px;
+            background: var(--primary-bg);
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary);
+        }
+        .module-icon svg { width: 16px; height: 16px; }
+        .module-name { font-size: 0.95rem; font-weight: 600; }
+        .module-name a { color: inherit; text-decoration: none; }
+        .module-name a:hover { color: var(--primary); }
+        .action-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+        }
+        .action-btn:hover { border-color: var(--primary); color: var(--primary); }
+        .action-btn svg { width: 12px; height: 12px; }
+
+        .module-homepage {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin: 4px 0 4px 38px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .module-homepage svg { width: 12px; height: 12px; }
+        .module-homepage a { color: var(--primary); text-decoration: none; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* Versions */
+        .versions-section { margin: 6px 0 0 38px; }
+        .versions { display: flex; flex-wrap: wrap; gap: 5px; }
+        .version {
+            padding: 3px 8px;
+            font-size: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--primary-bg);
+            color: var(--primary-dark);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .version:hover { background: var(--primary); color: white; }
+        .version.copied { background: var(--success); color: white; }
+        .version.yanked { background: rgba(239,68,68,0.1); color: #dc2626; }
+        .version-more { background: var(--bg); border: 1px dashed var(--border); color: var(--text-muted); }
+        .version-more:hover { border-color: var(--primary); color: var(--primary); }
+        .versions-collapsed { display: none; }
+        .versions-collapsed.show { display: flex; }
+
+        /* Quick dep */
+        .quick-dep {
+            margin: 6px 0 0 38px;
+            padding: 6px 10px;
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .quick-dep-code { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; }
+        .deprecated-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: rgba(245,158,11,0.1);
+            color: #f59e0b;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-top: 8px;
+        }
+
+        /* Empty / No results */
+        .empty-state { text-align: center; padding: 40px; color: var(--text-secondary); border: 1px dashed var(--border); border-radius: var(--radius-sm); }
+        .no-results { display: none; text-align: center; padding: 40px; color: var(--text-secondary); }
+        .no-results.show { display: block; }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 16px;
+            right: 16px;
+            padding: 10px 16px;
+            background: var(--text-primary);
+            color: white;
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.2s;
+            z-index: 1000;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+
+        /* Footer */
+        footer { border-top: 1px solid var(--border); padding: 16px; text-align: center; font-size: 0.85rem; color: var(--text-secondary); }
+        footer a { color: var(--primary); text-decoration: none; }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .header-content { flex-wrap: wrap; }
+            .search-box { order: 1; max-width: none; margin-top: 8px; width: 100%; }
+            .top-row { flex-direction: column; }
+            .recent-section { min-width: auto; }
+            .versions-section, .module-homepage, .quick-dep { margin-left: 0; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="brand">
+                    <div class="logo">B</div>
+                    <div class="brand-text">
+                        <h1>kekxv/bcr</h1>
+                        <p>Bazel Central Registry</p>
+                    </div>
+                </div>
+                <div class="search-box">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    <input type="text" id="searchInput" placeholder="Search modules..." autocomplete="off">
+                </div>
+            </div>
+            <div class="search-stats" id="searchStats"></div>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="hero">
+            <div class="top-row">
+                <div class="stat-card">
+                    <span class="stat-value" id="statModules">7</span>
+                    <span class="stat-label">Modules</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="statVersions">13</span>
+                    <span class="stat-label">Versions</span>
+                </div>
+                <div class="recent-section">
+                    <div class="recent-header">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="16 6 23 6 23 13"></polyline></svg>
+                        Recently Updated
+                    </div>
+                    <div class="recent-list">
+                        <span class="recent-item" data-dep="bazel_dep(name = 'webui', version = '2.5.0.bcr.beta.1')" title="Click to copy">
+                <span class="recent-item-name">webui</span>
+                <span class="recent-item-version">2.5.0.bcr.beta.1</span>
+            </span><span class="recent-item" data-dep="bazel_dep(name = 'rules_objc', version = '0.0.2')" title="Click to copy">
+                <span class="recent-item-name">rules_objc</span>
+                <span class="recent-item-version">0.0.2</span>
+            </span><span class="recent-item" data-dep="bazel_dep(name = 'thorvg', version = '1.0.3')" title="Click to copy">
+                <span class="recent-item-name">thorvg</span>
+                <span class="recent-item-version">1.0.3</span>
+            </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="usage-card">
+                <div class="usage-header">
+                    <span class="usage-title">Quick Start</span>
+                    <button class="copy-btn" data-copy="common --registry=https://kekxv.github.io/bcr
+common --registry=https://bcr.bazel.build  # default bcr">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy
+                    </button>
+                </div>
+                <div class="usage-code">
+                    <span class="comment"># MODULE.bazel</span><br>
+                    <span class="keyword">bazel_dep</span>(<span class="string">name</span> = <span class="string">"module_name"</span>, <span class="string">version</span> = <span class="string">"1.0.0"</span>)<br><br>
+                    <span class="comment"># .bazelrc</span><br>
+                    <span class="flag">common</span> --registry=https://kekxv.github.io/bcr<br>
+                    <span class="flag">common</span> --registry=https://bcr.bazel.build
+                </div>
+            </div>
+        </section>
+
+        <section class="modules">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                    Available Modules
+                </h2>
+            </div>
+
+            <div class="no-results" id="noResults">
+                <h3>No modules found</h3>
+                <p>Try adjusting your search terms</p>
+            </div>
+
+            <div class="modules-grid">
+<div class="module-card" id="module-cc_toolchains_linux" data-name="cc_toolchains_linux" data-versions="20260319.47 20260328.53" data-homepage="https://github.com/kekxv/cc_toolchains_linux">
+                <div class="module-header">
+                    <div class="module-title">
+                        <div class="module-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                        </div>
+                        <div class="module-name">cc_toolchains_linux</div>
+                    </div>
+                    <div class="module-actions">
+                        <a href="https://github.com/kekxv/bcr/tree/main/modules/cc_toolchains_linux" target="_blank" rel="noopener" class="action-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                            Source
+                        </a>
+                    </div>
+                </div>
+                <div class="module-homepage">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                    <a href="https://github.com/kekxv/cc_toolchains_linux" target="_blank" rel="noopener">https://github.com/kekxv/cc_toolchains_linux</a>
+                </div>
+                <div class="versions-section">
+                    <div class="versions"><span class="version" data-dep="bazel_dep(name = 'cc_toolchains_linux', version = '20260319.47')">20260319.47</span><span class="version" data-dep="bazel_dep(name = 'cc_toolchains_linux', version = '20260328.53')">20260328.53</span></div>
+                </div>
+                <div class="quick-dep">
+                    <code class="quick-dep-code">bazel_dep(name = 'cc_toolchains_linux', version = '20260328.53')</code>
+                    <button class="copy-btn" data-copy="bazel_dep(name = 'cc_toolchains_linux', version = '20260328.53')">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy
+                    </button>
+                </div>
+                
+            </div>
+<div class="module-card" id="module-cc_toolchains_windows" data-name="cc_toolchains_windows" data-versions="20260319 20260328.13" data-homepage="https://github.com/kekxv/cc_toolchains_windows">
+                <div class="module-header">
+                    <div class="module-title">
+                        <div class="module-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                        </div>
+                        <div class="module-name">cc_toolchains_windows</div>
+                    </div>
+                    <div class="module-actions">
+                        <a href="https://github.com/kekxv/bcr/tree/main/modules/cc_toolchains_windows" target="_blank" rel="noopener" class="action-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                            Source
+                        </a>
+                    </div>
+                </div>
+                <div class="module-homepage">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                    <a href="https://github.com/kekxv/cc_toolchains_windows" target="_blank" rel="noopener">https://github.com/kekxv/cc_toolchains_windows</a>
+                </div>
+                <div class="versions-section">
+                    <div class="versions"><span class="version" data-dep="bazel_dep(name = 'cc_toolchains_windows', version = '20260319')">20260319</span><span class="version" data-dep="bazel_dep(name = 'cc_toolchains_windows', version = '20260328.13')">20260328.13</span></div>
+                </div>
+                <div class="quick-dep">
+                    <code class="quick-dep-code">bazel_dep(name = 'cc_toolchains_windows', version = '20260328.13')</code>
+                    <button class="copy-btn" data-copy="bazel_dep(name = 'cc_toolchains_windows', version = '20260328.13')">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy
+                    </button>
+                </div>
+                
+            </div>
+<div class="module-card" id="module-quickjs-ng" data-name="quickjs-ng" data-versions="0.11.0 0.11.0.bcr.1 0.13.0" data-homepage="https://github.com/quickjs-ng/quickjs/">
+                <div class="module-header">
+                    <div class="module-title">
+                        <div class="module-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                        </div>
+                        <div class="module-name">quickjs-ng</div>
+                    </div>
+                    <div class="module-actions">
+                        <a href="https://github.com/kekxv/bcr/tree/main/modules/quickjs-ng" target="_blank" rel="noopener" class="action-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                            Source
+                        </a>
+                    </div>
+                </div>
+                <div class="module-homepage">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                    <a href="https://github.com/quickjs-ng/quickjs/" target="_blank" rel="noopener">https://github.com/quickjs-ng/quickjs/</a>
+                </div>
+                <div class="versions-section">
+                    <div class="versions"><span class="version" data-dep="bazel_dep(name = 'quickjs-ng', version = '0.11.0')">0.11.0</span><span class="version" data-dep="bazel_dep(name = 'quickjs-ng', version = '0.11.0.bcr.1')">0.11.0.bcr.1</span><span class="version" data-dep="bazel_dep(name = 'quickjs-ng', version = '0.13.0')">0.13.0</span></div>
+                </div>
+                <div class="quick-dep">
+                    <code class="quick-dep-code">bazel_dep(name = 'quickjs-ng', version = '0.13.0')</code>
+                    <button class="copy-btn" data-copy="bazel_dep(name = 'quickjs-ng', version = '0.13.0')">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy
+                    </button>
+                </div>
+                
+            </div>
+<div class="module-card" id="module-rules_objc" data-name="rules_objc" data-versions="0.0.2" data-homepage="https://github.com/kekxv/rules_objc">
+                <div class="module-header">
+                    <div class="module-title">
+                        <div class="module-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                        </div>
+                        <div class="module-name">rules_objc</div>
+                    </div>
+                    <div class="module-actions">
+                        <a href="https://github.com/kekxv/bcr/tree/main/modules/rules_objc" target="_blank" rel="noopener" class="action-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                            Source
+                        </a>
+                    </div>
+                </div>
+                <div class="module-homepage">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                    <a href="https://github.com/kekxv/rules_objc" target="_blank" rel="noopener">https://github.com/kekxv/rules_objc</a>
+                </div>
+                <div class="versions-section">
+                    <div class="versions"><span class="version" data-dep="bazel_dep(name = 'rules_objc', version = '0.0.2')">0.0.2</span></div>
+                </div>
+                <div class="quick-dep">
+                    <code class="quick-dep-code">bazel_dep(name = 'rules_objc', version = '0.0.2')</code>
+                    <button class="copy-btn" data-copy="bazel_dep(name = 'rules_objc', version = '0.0.2')">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy
+                    </button>
+                </div>
+                
+            </div>
+<div class="module-card" id="module-sdl3" data-name="sdl3" data-versions="3.4.2.beta.1" data-homepage="https://www.libsdl.org/">
+                <div class="module-header">
+                    <div class="module-title">
+                        <div class="module-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                        </div>
+                        <div class="module-name">sdl3</div>
+                    </div>
+                    <div class="module-actions">
+                        <a href="https://github.com/kekxv/bcr/tree/main/modules/sdl3" target="_blank" rel="noopener" class="action-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                            Source
+                        </a>
+                    </div>
+                </div>
+                <div class="module-homepage">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                    <a href="https://www.libsdl.org/" target="_blank" rel="noopener">https://www.libsdl.org/</a>
+                </div>
+                <div class="versions-section">
+                    <div class="versions"><span class="version" data-dep="bazel_dep(name = 'sdl3', version = '3.4.2.beta.1')">3.4.2.beta.1</span></div>
+                </div>
+                <div class="quick-dep">
+                    <code class="quick-dep-code">bazel_dep(name = 'sdl3', version = '3.4.2.beta.1')</code>
+                    <button class="copy-btn" data-copy="bazel_dep(name = 'sdl3', version = '3.4.2.beta.1')">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy
+                    </button>
+                </div>
+                
+            </div>
+<div class="module-card" id="module-thorvg" data-name="thorvg" data-versions="1.0.1.bcr.1 1.0.1.bcr.2 1.0.3" data-homepage="https://github.com/thorvg/thorvg">
+                <div class="module-header">
+                    <div class="module-title">
+                        <div class="module-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                        </div>
+                        <div class="module-name">thorvg</div>
+                    </div>
+                    <div class="module-actions">
+                        <a href="https://github.com/kekxv/bcr/tree/main/modules/thorvg" target="_blank" rel="noopener" class="action-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                            Source
+                        </a>
+                    </div>
+                </div>
+                <div class="module-homepage">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                    <a href="https://github.com/thorvg/thorvg" target="_blank" rel="noopener">https://github.com/thorvg/thorvg</a>
+                </div>
+                <div class="versions-section">
+                    <div class="versions"><span class="version" data-dep="bazel_dep(name = 'thorvg', version = '1.0.1.bcr.1')">1.0.1.bcr.1</span><span class="version" data-dep="bazel_dep(name = 'thorvg', version = '1.0.1.bcr.2')">1.0.1.bcr.2</span><span class="version" data-dep="bazel_dep(name = 'thorvg', version = '1.0.3')">1.0.3</span></div>
+                </div>
+                <div class="quick-dep">
+                    <code class="quick-dep-code">bazel_dep(name = 'thorvg', version = '1.0.3')</code>
+                    <button class="copy-btn" data-copy="bazel_dep(name = 'thorvg', version = '1.0.3')">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy
+                    </button>
+                </div>
+                
+            </div>
+<div class="module-card" id="module-webui" data-name="webui" data-versions="2.5.0.bcr.beta.1" data-homepage="https://github.com/webui-dev/webui">
+                <div class="module-header">
+                    <div class="module-title">
+                        <div class="module-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                        </div>
+                        <div class="module-name">webui</div>
+                    </div>
+                    <div class="module-actions">
+                        <a href="https://github.com/kekxv/bcr/tree/main/modules/webui" target="_blank" rel="noopener" class="action-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                            Source
+                        </a>
+                    </div>
+                </div>
+                <div class="module-homepage">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                    <a href="https://github.com/webui-dev/webui" target="_blank" rel="noopener">https://github.com/webui-dev/webui</a>
+                </div>
+                <div class="versions-section">
+                    <div class="versions"><span class="version" data-dep="bazel_dep(name = 'webui', version = '2.5.0.bcr.beta.1')">2.5.0.bcr.beta.1</span></div>
+                </div>
+                <div class="quick-dep">
+                    <code class="quick-dep-code">bazel_dep(name = 'webui', version = '2.5.0.bcr.beta.1')</code>
+                    <button class="copy-btn" data-copy="bazel_dep(name = 'webui', version = '2.5.0.bcr.beta.1')">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy
+                    </button>
+                </div>
+                
+            </div>
+</div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            Generated by <a href="https://github.com/kekxv/bcr" target="_blank">kekxv/bcr</a>
+        </div>
+    </footer>
+
+    <div class="toast" id="toast">Copied!</div>
+
+    <script>
+        (function() {
+            const searchInput = document.getElementById('searchInput');
+            const searchStats = document.getElementById('searchStats');
+            const noResults = document.getElementById('noResults');
+            const toast = document.getElementById('toast');
+            const moduleCards = document.querySelectorAll('.module-card');
+
+            function showToast(message) {
+                toast.textContent = message;
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 1500);
+            }
+
+            async function copyText(text, el) {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    el.classList.add('copied');
+                    showToast('Copied: ' + text);
+                    setTimeout(() => el.classList.remove('copied'), 1200);
+                } catch (err) {
+                    showToast('Failed to copy');
+                }
+            }
+
+            // Copy buttons
+            document.querySelectorAll('[data-copy]').forEach(btn => {
+                btn.addEventListener('click', () => copyText(btn.dataset.copy, btn));
+            });
+
+            // Version copy
+            document.querySelectorAll('.version[data-dep]').forEach(v => {
+                v.addEventListener('click', () => copyText(v.dataset.dep, v));
+            });
+
+            // Recent item copy
+            document.querySelectorAll('.recent-item[data-dep]').forEach(item => {
+                item.addEventListener('click', () => copyText(item.dataset.dep, item));
+            });
+
+            // Expand versions
+            document.querySelectorAll('.version-more').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const collapsed = this.closest('.module-card').querySelector('.versions-collapsed');
+                    collapsed.classList.add('show');
+                    this.style.display = 'none';
+                });
+            });
+
+            // Search
+            const hero = document.querySelector('.hero');
+
+            function filterModules() {
+                const query = searchInput.value.toLowerCase().trim();
+                let visibleCount = 0;
+                moduleCards.forEach(card => {
+                    const matches = !query ||
+                        (card.dataset.name || '').includes(query) ||
+                        (card.dataset.versions || '').includes(query);
+                    card.classList.toggle('hidden', !matches);
+                    if (matches) visibleCount++;
+                });
+                searchStats.textContent = query ? `Showing ${visibleCount} of ${moduleCards.length}` : '';
+                hero.classList.toggle('hidden', !!query);
+                noResults.classList.toggle('show', visibleCount === 0 && query);
+            }
+
+            searchInput.addEventListener('input', filterModules);
+
+            moduleCards.forEach(card => {
+                const nameEl = card.querySelector('.module-name');
+                const versionsEl = card.querySelector('.versions');
+                if (nameEl) card.dataset.name = nameEl.textContent.trim().toLowerCase();
+                if (versionsEl) card.dataset.versions = versionsEl.textContent.trim().toLowerCase();
+            });
+        })();
+    </script>
+</body>
+</html>

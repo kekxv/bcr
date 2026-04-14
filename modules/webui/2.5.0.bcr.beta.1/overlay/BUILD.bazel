@@ -1,0 +1,80 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_objc//:objc.bzl", "objc_library")
+
+# macOS specific library using rules_objc
+objc_library(
+    name = "webui_macos",
+    srcs = ["src/webview/wkwebview.m"],
+    hdrs = [
+        "include/webui.h",
+        "include/webui_extensions.h",
+    ],
+    includes = ["include"],
+)
+
+cc_library(
+    name = "webui",
+    srcs = [
+        "src/civetweb/civetweb.c",
+        "src/civetweb/civetweb.h",
+        "src/civetweb/handle_form.inl",
+        "src/civetweb/match.inl",
+        "src/civetweb/md5.inl",
+        "src/civetweb/response.inl",
+        "src/civetweb/sha1.inl",
+        "src/civetweb/sort.inl",
+        "src/webui.c",
+    ] + select({
+        "@platforms//os:windows": [
+            "src/webview/EventToken.h",
+            "src/webview/WebView2.h",
+            "src/webview/win32_wv2.cpp",
+            "src/webview/win32_wv2.hpp",
+        ],
+        "//conditions:default": [],
+    }),
+    hdrs = [
+        "bridge/webui_bridge.h",
+        "include/webui.h",
+        "include/webui.hpp",
+        "include/webui_extensions.h",
+    ],
+    copts = select({
+        "@platforms//os:windows": [],
+        "//conditions:default": ["-fPIC"],
+    }),
+    includes = ["include"],
+    linkopts = select({
+        "@platforms//os:windows": [
+            "-DEFAULTLIB:ws2_32",
+            "-DEFAULTLIB:user32",
+            "-DEFAULTLIB:shell32",
+            "-DEFAULTLIB:ole32",
+        ],
+        "@platforms//os:macos": [
+            "-framework Cocoa",
+            "-framework WebKit",
+        ],
+        "@platforms//os:linux": [
+            "-lpthread",
+            "-ldl",
+        ],
+        "//conditions:default": [],
+    }),
+    local_defines = [
+        "NO_CACHING",
+        "NO_CGI",
+        "USE_WEBSOCKET",
+        "NO_SSL",
+    ] + select({
+        "@platforms//os:windows": [
+            "CIVETWEB_DLL_EXPORTS",
+        ],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+    deps = select({
+        "@platforms//os:macos": [":webui_macos"],
+        "//conditions:default": [],
+    }),
+)

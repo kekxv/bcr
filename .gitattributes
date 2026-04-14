@@ -1,0 +1,22 @@
+# Force LF line endings for Bazel build files to ensure consistent checksums across platforms
+# See: https://github.com/bazelbuild/bazel-central-registry/issues/782
+
+# Bazel module and build files
+**/MODULE.bazel text eol=lf
+**/BUILD.bazel text eol=lf
+*.bzl text eol=lf
+
+# JSON files (source.json, metadata.json, etc.)
+**/source.json text eol=lf
+**/metadata.json text eol=lf
+*.json text eol=lf
+
+# Patch files
+*.patch text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+
+# Windows batch files should use CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf

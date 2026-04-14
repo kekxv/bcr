@@ -1,0 +1,15 @@
+{
+  "url": "https://github.com/libsdl-org/SDL/releases/download/release-3.4.2/SDL3-3.4.2.tar.gz",
+  "integrity": "sha256-7zmi4/mop4KWxA2nAZZ90bDQ1uJn5IOGPOcPigO0BQw=",
+  "strip_prefix": "SDL3-3.4.2",
+  "overlay": {
+    "BUILD.bazel": "sha256-Qo4nF9R2aOKckMIlyvWz/u86DWV7Ggxga75TjvNbQ98=",
+    "MODULE.bazel": "sha256-HGd9YM2NE9pmu1eZIRgTeGHFXaz+lJAThVNPbfNHcAM=",
+    "sdl3_config_checks.bzl": "sha256-bgUZmge4F3Ntg4mdRt9bnL4F0uH8CXLZHSZ6VYvgpV4=",
+    "include/build_config/SDL_build_config_linux.h": "sha256-wmoznggZEDPQh9WGtDuISgWbEJixAa68x4v0zeQedJ0="
+  },
+  "patches": {
+    "changes.patch": "sha256-xy4rsRsBrJZopr80F643KIqFo9KrBCMNmj3CJCWRHFU="
+  },
+  "patch_strip": 0
+}
