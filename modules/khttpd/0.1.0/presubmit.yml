@@ -9,5 +9,5 @@ tasks:
     platform: ${{ platform }}
     bazel: ${{ bazel }}
     build_targets:
-      - '-@boost.asio//:ssl=boringssl @khttpd//:khttpd'
+      - '--@boost.asio//:ssl=boringssl @khttpd//:khttpd'
 
