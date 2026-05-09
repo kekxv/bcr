@@ -1,0 +1,17 @@
+{
+  "homepage": "https://github.com/ClangTools/khttpd",
+  "maintainers": [
+    {
+      "email": "caesar@kekxv.com",
+      "github": "kekxv",
+      "name": "kekxv"
+    }
+  ],
+  "repository": [
+    "github:ClangTools/khttpd"
+  ],
+  "versions": [
+    "0.1.0"
+  ],
+  "yanked_versions": {}
+}
