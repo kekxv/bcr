@@ -1,6 +1,5 @@
 matrix:
   platform:
-    - macos_arm64
     - ubuntu2404
   bazel: [8.x]
 tasks:
@@ -9,5 +8,5 @@ tasks:
     platform: ${{ platform }}
     bazel: ${{ bazel }}
     build_targets:
-      - '@khttpd//:khttpd --@boost.asio//:ssl=boringssl'
+      - '@khttpd//:khttpd'
 
