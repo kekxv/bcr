@@ -1,7 +1,7 @@
 {
   "url": "https://github.com/libusb/libusb/releases/download/v1.0.29/libusb-1.0.29.tar.bz2",
   "integrity": "sha256-WXf8lQ+NE5XM6pvUjAaz+Aj9PCyWG0Swwubin8OnCoU=",
-  "strip_prefix": "libusb-1.0.28",
+  "strip_prefix": "libusb-1.0.29",
   "overlay": {
     "BUILD.bazel": "sha256-Yf/xB4Bxg5YXq+7RtD7iKD2E2QQrtddL/1/le18ibbQ=",
     "config.h-linux": "sha256-t53kD+YB9fjjWj4+Ok7Uvx3KtqC4s4fxdT18KuH/sug=",
