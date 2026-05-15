@@ -10,6 +10,12 @@ config_setting(
     flag_values = {"@bazel_tools//tools/cpp:compiler": "gcc"},
 )
 
+# Config setting for Windows with MSVC (cl.exe)
+config_setting(
+    name = "windows_msvc",
+    flag_values = {"@bazel_tools//tools/cpp:compiler": "msvc-cl"},
+)
+
 # Common compiler flags
 COPTS_COMMON = [
     "-Wall",
@@ -22,6 +28,29 @@ COPTS_COMMON = [
     "-Wno-unused-result",
     "-Wno-array-bounds",
     "-funsigned-char",
+]
+
+# MSVC (cl.exe) specific flags — matches CMakeLists.txt
+COPTS_MSVC = [
+    "/wd4018",
+    "/wd4061",
+    "/wd4100",
+    "/wd4200",
+    "/wd4242",
+    "/wd4244",
+    "/wd4245",
+    "/wd4267",
+    "/wd4388",
+    "/wd4389",
+    "/wd4456",
+    "/wd4457",
+    "/wd4710",
+    "/wd4711",
+    "/wd4820",
+    "/wd4996",
+    "/wd5045",
+    "/experimental:c11atomics",
+    "/std:c11",
 ]
 
 # Windows/zig cross-compile specific flags (clang-based, not MSVC)
@@ -39,6 +68,20 @@ DEFINES_WINDOWS = [
     "WIN32_LEAN_AND_MEAN",
     "_WIN32_WINNT=0x0601",
 ]
+
+# Copts: MSVC on Windows with cl, clang-style for zig cross-compile, GCC/clang otherwise
+_COPTS = select({
+    ":windows_msvc": COPTS_MSVC,
+    "@platforms//os:windows": COPTS_WINDOWS_ZIG,
+    "//conditions:default": COPTS_COMMON,
+})
+
+# Defines: Windows gets WIN32_LEAN_AND_MEAN + _WIN32_WINNT, others get nothing extra
+_DEFINES = DEFINES_COMMON + select({
+    ":windows_msvc": DEFINES_WINDOWS,
+    "@platforms//os:windows": DEFINES_WINDOWS,
+    "//conditions:default": [],
+})
 
 # Shared headers used by all quickjs source files
 cc_library(
@@ -60,50 +103,39 @@ cc_library(
         "quickjs-libc.h",
         "quickjs-opcode.h",
     ],
-    defines = DEFINES_COMMON + select({
-        "@platforms//os:windows": DEFINES_WINDOWS,
-        "//conditions:default": [],
-    }),
+    defines = _DEFINES,
 )
 
 # Core QuickJS Library - each source compiled individually for Windows zig compat
 cc_library(
     name = "quickjs_dtoa",
     srcs = ["dtoa.c"],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [":quickjs_hdrs"],
 )
 
 cc_library(
     name = "quickjs_libregexp",
     srcs = ["libregexp.c"],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [":quickjs_hdrs"],
 )
 
 cc_library(
     name = "quickjs_libunicode",
     srcs = ["libunicode.c"],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [":quickjs_hdrs"],
 )
 
 cc_library(
     name = "quickjs_core",
     srcs = ["quickjs.c"],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [":quickjs_hdrs"],
 )
 
@@ -132,14 +164,11 @@ cc_library(
 )
 
 # Standard library — separate from core, like CMake's qjs-libc
-# Only needed by executables that use the REPL / libc integration.
 cc_library(
     name = "qjs_libc",
     srcs = ["quickjs-libc.c"],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [":quickjs_hdrs"],
 )
 
@@ -152,14 +181,8 @@ alias(
 cc_binary(
     name = "qjsc",
     srcs = ["qjsc.c"],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
-    defines = DEFINES_COMMON + select({
-        "@platforms//os:windows": DEFINES_WINDOWS,
-        "//conditions:default": [],
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [
         ":qjs_libc",
         ":quickjs",
@@ -174,14 +197,8 @@ cc_binary(
         "gen/standalone.c",
         "qjs.c",
     ],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
-    defines = DEFINES_COMMON + select({
-        "@platforms//os:windows": DEFINES_WINDOWS,
-        "//conditions:default": [],
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [
         ":qjs_libc",
         ":quickjs",
@@ -192,14 +209,8 @@ cc_binary(
 cc_binary(
     name = "run-test262",
     srcs = ["run-test262.c"],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
-    defines = DEFINES_COMMON + select({
-        "@platforms//os:windows": DEFINES_WINDOWS,
-        "//conditions:default": [],
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [
         ":qjs_libc",
         ":quickjs",
@@ -210,14 +221,8 @@ cc_binary(
 cc_test(
     name = "api_test",
     srcs = ["api-test.c"],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
-    defines = DEFINES_COMMON + select({
-        "@platforms//os:windows": DEFINES_WINDOWS,
-        "//conditions:default": [],
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [
         ":qjs_libc",
         ":quickjs",
@@ -232,14 +237,8 @@ cc_binary(
         "libunicode.c",
         "lre-test.c",
     ],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
-    defines = DEFINES_COMMON + select({
-        "@platforms//os:windows": DEFINES_WINDOWS,
-        "//conditions:default": [],
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [":quickjs_hdrs"],
 )
 
@@ -251,14 +250,8 @@ cc_binary(
         "unicode_gen.c",
         "unicode_gen_def.h",
     ],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
-    defines = DEFINES_COMMON + select({
-        "@platforms//os:windows": DEFINES_WINDOWS,
-        "//conditions:default": [],
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [":quickjs_hdrs"],
 )
 
@@ -266,14 +259,8 @@ cc_binary(
 cc_binary(
     name = "function_source",
     srcs = ["gen/function_source.c"],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
-    defines = DEFINES_COMMON + select({
-        "@platforms//os:windows": DEFINES_WINDOWS,
-        "//conditions:default": [],
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [
         ":qjs_libc",
         ":quickjs",
@@ -284,14 +271,8 @@ cc_binary(
 cc_binary(
     name = "test_fib",
     srcs = ["gen/test_fib.c"],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
-    defines = DEFINES_COMMON + select({
-        "@platforms//os:windows": DEFINES_WINDOWS,
-        "//conditions:default": [],
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [
         ":qjs_libc",
         ":quickjs",
@@ -302,14 +283,8 @@ cc_binary(
 cc_binary(
     name = "hello",
     srcs = ["gen/hello.c"],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
-    defines = DEFINES_COMMON + select({
-        "@platforms//os:windows": DEFINES_WINDOWS,
-        "//conditions:default": [],
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [
         ":qjs_libc",
         ":quickjs",
@@ -319,14 +294,8 @@ cc_binary(
 cc_binary(
     name = "hello_module",
     srcs = ["gen/hello_module.c"],
-    copts = select({
-        "@platforms//os:windows": COPTS_WINDOWS_ZIG,
-        "//conditions:default": COPTS_COMMON,
-    }),
-    defines = DEFINES_COMMON + select({
-        "@platforms//os:windows": DEFINES_WINDOWS,
-        "//conditions:default": [],
-    }),
+    copts = _COPTS,
+    defines = _DEFINES,
     deps = [
         ":qjs_libc",
         ":quickjs",
