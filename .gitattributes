@@ -20,3 +20,5 @@
 # Windows batch files should use CRLF
 *.bat text eol=crlf
 *.cmd text eol=crlf
+*.h* text eol=lf
+*.c* text eol=lf

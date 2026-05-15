@@ -1,0 +1,38 @@
+/* config.h.  Manual config for Bazel Windows builds with MinGW/Clang.  */
+
+/* Define to the attribute for default visibility. */
+#define DEFAULT_VISIBILITY /**/
+
+/* Define to 1 to start with debug message logging enabled. */
+/* #undef ENABLE_DEBUG_LOGGING */
+
+/* Define to 1 to enable message logging. */
+#define ENABLE_LOGGING 1
+
+/* Define to 1 if compiling for a Windows platform. */
+#define PLATFORM_WINDOWS 1
+
+/* Define to the attribute for enabling parameter checks on printf-like
+   functions. */
+#if defined(__GNUC__) || defined(__clang__)
+#define PRINTF_FORMAT(a, b) __attribute__ ((__format__ (__printf__, a, b)))
+#else
+#define PRINTF_FORMAT(a, b) /**/
+#endif
+
+/* Define to 1 to output logging messages to the systemwide log. */
+/* #undef USE_SYSTEM_LOGGING_FACILITY */
+
+/* Name of package */
+#define PACKAGE "libusb-1.0"
+
+/* Define to the version of this package. */
+#define PACKAGE_VERSION "{LIBUSB_VERSION}"
+
+/* Version number of package */
+#define VERSION "{LIBUSB_VERSION}"
+
+/* Define to the oldest supported Windows version. */
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0600
+#endif
