@@ -1,0 +1,10 @@
+{
+  "url": "https://github.com/nothings/stb/archive/31c1ad37456438565541f4919958214b6e762fb4.tar.gz",
+  "integrity": "sha256-5OO7qcVypKQUg3OpFNiOoPDRHejMLGZzmSbn7KAiMxk=",
+  "strip_prefix": "stb-31c1ad37456438565541f4919958214b6e762fb4",
+  "patch_strip": 0,
+  "overlay": {
+    "BUILD.bazel": "sha256-X8WZONQcm+3UZjf6LmZSPJeBOsU1Bdl0owXMFPjBkho=",
+    "MODULE.bazel": "sha256-Aem2ECIV8m6qOt8DQ7KLN0vBzEnbwKd6oCGxIZNyKXs="
+  }
+}
