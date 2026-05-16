@@ -2,6 +2,7 @@
   "homepage": "https://github.com/nothings/stb",
   "maintainers": [
     {
+      "email": "stb@metadata.com",
       "github": "hofbi",
       "github_user_id": 10724293,
       "name": "Markus Hofbauer"
