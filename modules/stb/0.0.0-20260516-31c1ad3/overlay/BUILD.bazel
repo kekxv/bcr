@@ -8,7 +8,7 @@ load("@rules_cc//cc:defs.bzl", "cc_library")
 write_file(
     name = "stb_image_impl",
     out = "stb_image_impl.cpp",
-    content = "#include <stb_image.h>",
+    content = ["#include <stb_image.h>"],
 )
 
 cc_library(
