@@ -1,0 +1,8 @@
+module(
+    name = "stb",
+    version = "0.0.0-20260516-31c1ad3",
+    bazel_compatibility = [">=7.2.1"],
+    compatibility_level = 0,
+)
+
+bazel_dep(name = "rules_cc", version = "0.2.18")
