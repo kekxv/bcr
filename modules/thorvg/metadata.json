@@ -1,21 +1,22 @@
 {
-    "homepage": "https://github.com/thorvg/thorvg",
-    "maintainers": [
-        {
-            "email": "caesar@kekxv.com",
-            "github": "kekxv",
-            "name": "kekxv",
-            "github_user_id": 15551108
-        }
-    ],
-    "repository": [
-        "github:thorvg/thorvg"
-    ],
-    "versions": [
-        "1.0.1.bcr.1",
-        "1.0.1.bcr.2",
-        "1.0.3"
-    ],
-    "yanked_versions": {
+  "homepage": "https://github.com/thorvg/thorvg",
+  "maintainers": [
+    {
+      "email": "caesar@kekxv.com",
+      "github": "kekxv",
+      "name": "kekxv",
+      "github_user_id": 15551108
     }
+  ],
+  "repository": [
+    "github:thorvg/thorvg"
+  ],
+  "versions": [
+    "1.0.1.bcr.1",
+    "1.0.1.bcr.2",
+    "1.0.3",
+    "1.0.5"
+  ],
+  "yanked_versions": {
+  }
 }
