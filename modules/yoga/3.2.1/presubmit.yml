@@ -11,6 +11,8 @@ tasks:
     name: Verify build targets
     platform: ${{ platform }}
     bazel: ${{ bazel }}
+    build_args:
+      - "--verbose_failures"
     build_targets:
       - '@yoga//:yoga'
 bcr_test_module:
@@ -28,6 +30,8 @@ bcr_test_module:
       name: Run test module
       platform: ${{ platform }}
       bazel: ${{ bazel }}
+      build_args:
+        - "--verbose_failures"
       build_targets:
         - //tests/...
       test_targets:
