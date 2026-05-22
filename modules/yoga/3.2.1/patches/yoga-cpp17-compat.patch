@@ -1,3 +1,22 @@
+diff --git a/yoga/algorithm/FlexLine.cpp b/yoga/algorithm/FlexLine.cpp
+index cb5c728..482e8fb 100644
+--- a/yoga/algorithm/FlexLine.cpp
++++ b/yoga/algorithm/FlexLine.cpp
+@@ -112,10 +112,10 @@ FlexLine calculateFlexLine(
+   }
+ 
+   return FlexLine{
+-      .itemsInFlow = std::move(itemsInFlow),
+-      .sizeConsumed = sizeConsumed,
+-      .numberOfAutoMargins = numberOfAutoMargins,
+-      .layout = FlexLineRunningLayout{
++      std::move(itemsInFlow),
++      sizeConsumed,
++      numberOfAutoMargins,
++      FlexLineRunningLayout{
+           totalFlexGrowFactors,
+           totalFlexShrinkScaledFactors,
+       }};
 diff --git a/yoga/config/Config.h b/yoga/config/Config.h
 index 7bcffd1..0a0e9ab 100644
 --- a/yoga/config/Config.h
@@ -179,10 +198,43 @@ index 9f0aeaf..6bfea01 100644
    std::array<float, 2> dimensions_ = {{YGUndefined, YGUndefined}};
    std::array<float, 2> measuredDimensions_ = {{YGUndefined, YGUndefined}};
 diff --git a/yoga/node/LayoutableChildren.h b/yoga/node/LayoutableChildren.h
-index b158a6a..1ad9f48 100644
+index b158a6a..1e78b97 100644
 --- a/yoga/node/LayoutableChildren.h
 +++ b/yoga/node/LayoutableChildren.h
-@@ -118,7 +118,6 @@ class LayoutableChildren {
+@@ -13,6 +13,14 @@
+ 
+ #include <yoga/enums/Display.h>
+ 
++#if __cplusplus >= 202002L || (defined(_MSVC_LANG) && _MSVC_LANG >= 202002L)
++#define YOGA_LIKELY [[likely]]
++#define YOGA_UNLIKELY [[unlikely]]
++#else
++#define YOGA_LIKELY
++#define YOGA_UNLIKELY
++#endif
++
+ namespace facebook::yoga {
+ 
+ class Node;
+@@ -60,7 +68,7 @@ class LayoutableChildren {
+       if (childIndex_ + 1 >= node_->getChildCount()) {
+         // if the current node has no more children, try to backtrack and
+         // visit its successor
+-        if (backtrack_.empty()) [[likely]] {
++        if (backtrack_.empty()) YOGA_LIKELY {
+           // if there are no nodes to backtrack to, the last node has been
+           // visited
+           *this = Iterator{};
+@@ -80,7 +88,7 @@ class LayoutableChildren {
+         // skip all display: contents nodes, possibly going deeper into the
+         // tree
+         if (node_->getChild(childIndex_)->style().display() ==
+-            Display::Contents) [[unlikely]] {
++            Display::Contents) YOGA_UNLIKELY {
+           skipContentsNodes();
+         }
+       }
+@@ -118,7 +126,6 @@ class LayoutableChildren {
    };
  
    explicit LayoutableChildren(const T* node) : node_(node) {
@@ -190,8 +242,17 @@ index b158a6a..1ad9f48 100644
      static_assert(
          std::is_base_of<Node, T>::value,
          "Type parameter of LayoutableChildren must derive from yoga::Node");
+@@ -128,7 +135,7 @@ class LayoutableChildren {
+     if (node_->getChildCount() > 0) {
+       auto result = Iterator(node_, 0);
+       if (node_->getChild(0)->style().display() == Display::Contents)
+-          [[unlikely]] {
++          YOGA_UNLIKELY {
+         result.skipContentsNodes();
+       }
+       return result;
 diff --git a/yoga/node/Node.cpp b/yoga/node/Node.cpp
-index cf36ab0..f40bc0a 100644
+index cf36ab0..ef87143 100644
 --- a/yoga/node/Node.cpp
 +++ b/yoga/node/Node.cpp
 @@ -19,7 +19,13 @@ namespace facebook::yoga {
@@ -209,6 +270,17 @@ index cf36ab0..f40bc0a 100644
    yoga::assertFatal(
        config != nullptr, "Attempting to construct Node with null config");
  
+@@ -71,9 +77,7 @@ YGSize Node::measure(
+         "Measure function returned an invalid dimension to Yoga: [width=%f, height=%f]",
+         size.width,
+         size.height);
+-    return {
+-        .width = maxOrDefined(0.0f, size.width),
+-        .height = maxOrDefined(0.0f, size.height)};
++    return {maxOrDefined(0.0f, size.width), maxOrDefined(0.0f, size.height)};
+   }
+ 
+   return size;
 diff --git a/yoga/node/Node.h b/yoga/node/Node.h
 index d596c56..6f193b9 100644
 --- a/yoga/node/Node.h

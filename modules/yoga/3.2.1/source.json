@@ -10,7 +10,7 @@
     "MODULE.bazel": "sha256-agaPU115WQFBxnba5UYGfC2ngfRo23H3o6D5Qppel7g="
   },
   "patches": {
-    "yoga-cpp17-compat.patch": "sha256-9ATFMH16Sw8iDElVy6LcVFKbN9sJ3iGu8e9xE9AmgFI="
+    "yoga-cpp17-compat.patch": "sha256-hmPNyeM1IWqvVANl2nH3Mwxi8wUM9IP68K0pevvHcwE="
   },
   "patch_strip": 1
 }
