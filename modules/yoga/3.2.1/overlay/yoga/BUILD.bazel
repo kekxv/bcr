@@ -23,7 +23,7 @@ cc_library(
             "/W3",
             "/WX",
             "/GR-",
-            "/std:c++14",
+            "/std:c++17",
         ],
         "//conditions:default": [
             "-fno-omit-frame-pointer",
@@ -32,7 +32,7 @@ cc_library(
             "-Wextra",
             "-Werror",
             "-fno-rtti",
-            "-std=c++14",
+            "-std=c++17",
         ],
     }) + select({
         "//:release_build": ["-O2"],
