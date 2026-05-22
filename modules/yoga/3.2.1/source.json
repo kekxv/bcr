@@ -1,0 +1,16 @@
+{
+  "integrity": "sha256-hrOZrDH9gg2P+oI8P64xu2kLb8RTAbKoqWbAm1oIi1U=",
+  "strip_prefix": "yoga-3.2.1",
+  "url": "https://github.com/facebook/yoga/archive/refs/tags/v3.2.1.tar.gz",
+  "overlay": {
+    "benchmark/BUILD.bazel": "sha256-lkGz46HlWqTzfUqMqC5G4MEc4aOSBSXxTkBKOvRyHmk=",
+    "tests/BUILD.bazel": "sha256-gAN0fMHfw+QXsuVKKT8cfm5q+f0elYf0DgZSU5mVPgo=",
+    "yoga/BUILD.bazel": "sha256-KPZfoR3j9zhfmDxU0lcKKffkLIcKD1bH0fnLAK+e+Do=",
+    "BUILD.bazel": "sha256-hdkjrI8Ruhx2qJ+Xkc9cPNzUh3HUu/WoKJIJH8/qTeY=",
+    "MODULE.bazel": "sha256-agaPU115WQFBxnba5UYGfC2ngfRo23H3o6D5Qppel7g="
+  },
+  "patches": {
+    "yoga-cpp17-compat.patch": "sha256-9ATFMH16Sw8iDElVy6LcVFKbN9sJ3iGu8e9xE9AmgFI="
+  },
+  "patch_strip": 1
+}
