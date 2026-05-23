@@ -1,0 +1,17 @@
+{
+  "homepage": "https://github.com/uriparser/uriparser",
+  "maintainers": [
+    {
+      "email": "caesar@kekxv.com",
+      "github": "kekxv",
+      "name": "kekxv"
+    }
+  ],
+  "repository": [
+    "github:uriparser/uriparser"
+  ],
+  "versions": [
+    "1.0.2"
+  ],
+  "yanked_versions": {}
+}

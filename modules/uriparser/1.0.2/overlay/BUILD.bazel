@@ -1,0 +1,213 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+# ==============================================================================
+# Platform config settings
+# ==============================================================================
+
+config_setting(
+    name = "on_linux",
+    constraint_values = [
+        "@platforms//os:linux",
+    ],
+)
+
+config_setting(
+    name = "on_macos",
+    constraint_values = [
+        "@platforms//os:macos",
+    ],
+)
+
+config_setting(
+    name = "on_windows",
+    constraint_values = [
+        "@platforms//os:windows",
+    ],
+)
+
+# ==============================================================================
+# Feature toggle config settings
+#
+# Usage:
+#   bazel build //:uriparser --define URIPARSER_BUILD_CHAR=0
+#   bazel build //:uriparser --define URIPARSER_BUILD_WCHAR_T=0
+# ==============================================================================
+
+config_setting(
+    name = "no_char",
+    define_values = {"URIPARSER_BUILD_CHAR": "0"},
+)
+
+config_setting(
+    name = "no_wchar",
+    define_values = {"URIPARSER_BUILD_WCHAR_T": "0"},
+)
+
+# ==============================================================================
+# File lists
+# ==============================================================================
+
+URIPARSER_PUBLIC_HDRS = glob(["include/uriparser/*.h"])
+
+URIPARSER_PRIVATE_HDRS = [
+    "src/UriCommon.h",
+    "src/UriCopy.h",
+    "src/UriIp4Base.h",
+    "src/UriMemory.h",
+    "src/UriNormalize.h",
+    "src/UriNormalizeBase.h",
+    "src/UriParseBase.h",
+    "src/UriSetHostBase.h",
+    "src/UriSetHostCommon.h",
+    "src/UriSets.h",
+]
+
+URIPARSER_SRCS = [
+    "src/UriCommon.c",
+    "src/UriCompare.c",
+    "src/UriCopy.c",
+    "src/UriEscape.c",
+    "src/UriFile.c",
+    "src/UriIp4.c",
+    "src/UriIp4Base.c",
+    "src/UriMemory.c",
+    "src/UriNormalize.c",
+    "src/UriNormalizeBase.c",
+    "src/UriParse.c",
+    "src/UriParseBase.c",
+    "src/UriQuery.c",
+    "src/UriRecompose.c",
+    "src/UriResolve.c",
+    "src/UriSetFragment.c",
+    "src/UriSetHostAuto.c",
+    "src/UriSetHostCommon.c",
+    "src/UriSetHostIp4.c",
+    "src/UriSetHostIp6.c",
+    "src/UriSetHostIpFuture.c",
+    "src/UriSetHostRegName.c",
+    "src/UriSetPath.c",
+    "src/UriSetPort.c",
+    "src/UriSetQuery.c",
+    "src/UriSetScheme.c",
+    "src/UriSetUserInfo.c",
+    "src/UriShorten.c",
+    "src/UriVersion.c",
+]
+
+URIPARSER_ALL_SRCS = URIPARSER_SRCS + URIPARSER_PRIVATE_HDRS
+
+# ==============================================================================
+# C library
+# ==============================================================================
+
+cc_library(
+    name = "uriparser",
+    srcs = URIPARSER_ALL_SRCS,
+    hdrs = URIPARSER_PUBLIC_HDRS,
+    copts = select({
+        "@platforms//os:windows": [],
+        "//conditions:default": [
+            "-std=c99",
+            "-fvisibility=hidden",
+        ],
+    }),
+    cxxopts = select({
+        "@platforms//os:windows": ["/std:c++17"],
+        "//conditions:default": ["-std=c++17"],
+    }),
+    defines = [
+        "URI_LIBRARY_BUILD",
+        "HAVE_WPRINTF",
+    ] + select({
+        ":on_linux": ["HAVE_REALLOCARRAY"],
+        "//conditions:default": [],
+    }) + select({
+        ":no_char": ["URI_NO_ANSI"],
+        "//conditions:default": [],
+    }) + select({
+        ":no_wchar": ["URI_NO_UNICODE"],
+        "//conditions:default": [],
+    }),
+    includes = ["include"],
+    textual_hdrs = ["src/UriConfig.h"],
+    visibility = ["//visibility:public"],
+)
+
+# ==============================================================================
+# Command-line tool
+# ==============================================================================
+
+cc_binary(
+    name = "uriparse",
+    srcs = ["tool/uriparse.c"],
+    copts = select({
+        "@platforms//os:windows": [],
+        "//conditions:default": ["-std=c99"],
+    }),
+    linkopts = select({
+        "@platforms//os:windows": ["-lws2_32"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [":uriparser"],
+)
+
+# ==============================================================================
+# Test suite
+# ==============================================================================
+
+TEST_SRCS = [
+    "test/CompareRangeLengthWrap.cpp",
+    "test/copy.cpp",
+    "test/FourSuite.cpp",
+    "test/MemoryManagerSuite.cpp",
+    "test/test.cpp",
+    "test/SetFragment.cpp",
+    "test/SetHostAuto.cpp",
+    "test/SetHostIp4.cpp",
+    "test/SetHostIp6.cpp",
+    "test/SetHostIpFuture.cpp",
+    "test/SetHostRegName.cpp",
+    "test/SetPath.cpp",
+    "test/SetPort.cpp",
+    "test/SetQuery.cpp",
+    "test/SetScheme.cpp",
+    "test/SetUserInfo.cpp",
+    "test/VersionSuite.cpp",
+]
+
+cc_test(
+    name = "testrunner",
+    srcs = TEST_SRCS + URIPARSER_ALL_SRCS + URIPARSER_PUBLIC_HDRS + ["src/UriConfig.h"],
+    copts = [
+    ],
+    cxxopts = select({
+        "@platforms//os:windows": ["/std:c++17"],
+        "//conditions:default": ["-std=c++17"],
+    }),
+    defines = [
+        "URI_STATIC_BUILD",
+        "HAVE_WPRINTF",
+    ] + select({
+        ":on_linux": ["HAVE_REALLOCARRAY"],
+        "//conditions:default": [],
+    }) + select({
+        "@platforms//os:windows": [
+            "_CRT_NONSTDC_NO_WARNINGS",
+            "_CRT_SECURE_NO_WARNINGS",
+        ],
+        "//conditions:default": [],
+    }),
+    includes = [
+        "include",
+        "src",
+    ],
+    linkopts = select({
+        "@platforms//os:linux": ["-lpthread"],
+        "@platforms//os:macos": ["-lpthread"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "@googletest//:gtest_main",
+    ],
+)
