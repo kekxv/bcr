@@ -4,7 +4,7 @@
   "strip_prefix": "uriparser-1.0.2",
   "overlay": {
     "src/UriConfig.h": "sha256-1sG8V3dJtXr/5Chu8HN2n9W4R6spJd8arpx27siLi7Q=",
-    "BUILD.bazel": "sha256-xR4O0qIzG0+YLu0xquiA4q81b6aN60pFNK7f9wpiIjo=",
+    "BUILD.bazel": "sha256-2kN0Wf7wtAaMZJpG7xq16CO/cO3I4/fgV22jOxlqDog=",
     "MODULE.bazel": "sha256-wiopnrvBWalQxipDixErRs6yuhVkm9OyGKwsgXIxb2k="
   }
 }

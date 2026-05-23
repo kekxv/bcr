@@ -1,6 +1,5 @@
 matrix:
   bazel:
-    - 7.x
     - 8.x
   platform:
     - ubuntu2404
@@ -22,7 +21,7 @@ bcr_test_module:
       - ubuntu2404
       - macos
       - windows
-    bazel: [7.x, 8.x]
+    bazel: [ 8.x ]
   tasks:
     run_test_module:
       name: Run test module
