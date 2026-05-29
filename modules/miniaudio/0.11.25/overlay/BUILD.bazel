@@ -1,0 +1,44 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+config_setting(
+    name = "debug_output_enabled",
+    values = {"define": "miniaudio_debug_output=enabled"},
+    visibility = ["//visibility:public"],
+)
+
+# Platform link options
+# Linux: pthread, dl, math
+# macOS: pthread, dl (no -lm)
+# Windows: none needed
+_PLATFORM_LINKOPTS = select({
+    "@platforms//os:linux": [
+        "-lpthread",
+        "-ldl",
+        "-lm",
+    ],
+    "@platforms//os:macos": [
+        "-lpthread",
+        "-ldl",
+    ],
+    "@platforms//os:windows": [],
+    "//conditions:default": [],
+})
+
+# ===========================================================================
+# miniaudio — main static library
+#
+# External projects depend on @miniaudio//:miniaudio. This compiles
+# miniaudio.c (the implementation) and exposes miniaudio.h publicly.
+# ===========================================================================
+
+cc_library(
+    name = "miniaudio",
+    srcs = ["miniaudio.c"],
+    hdrs = ["miniaudio.h"],
+    defines = select({
+        ":debug_output_enabled": ["MA_DEBUG_OUTPUT"],
+        "//conditions:default": [],
+    }),
+    linkopts = _PLATFORM_LINKOPTS,
+    visibility = ["//visibility:public"],
+)
