@@ -1,0 +1,113 @@
+{
+  "mirrors": [],
+  "modules": {
+    "cc_toolchains_linux": {
+      "versions": [
+        "20260319.47",
+        "20260328.53"
+      ],
+      "yanked_versions": {},
+      "deprecated": null
+    },
+    "cc_toolchains_windows": {
+      "versions": [
+        "20260319",
+        "20260328.13",
+        "20260521.16"
+      ],
+      "yanked_versions": {},
+      "deprecated": null
+    },
+    "khttpd": {
+      "versions": [
+        "0.1.0"
+      ],
+      "yanked_versions": {},
+      "deprecated": null
+    },
+    "libharu": {
+      "versions": [
+        "2.4.6"
+      ],
+      "yanked_versions": {},
+      "deprecated": null
+    },
+    "libusb": {
+      "versions": [
+        "1.0.29"
+      ],
+      "yanked_versions": {},
+      "deprecated": null
+    },
+    "miniaudio": {
+      "versions": [
+        "0.11.25"
+      ],
+      "yanked_versions": {},
+      "deprecated": null
+    },
+    "quickjs-ng": {
+      "versions": [
+        "0.11.0",
+        "0.11.0.bcr.1",
+        "0.13.0",
+        "0.14.0",
+        "0.15.0"
+      ],
+      "yanked_versions": {},
+      "deprecated": null
+    },
+    "rules_objc": {
+      "versions": [
+        "0.0.2"
+      ],
+      "yanked_versions": {},
+      "deprecated": null
+    },
+    "sdl3": {
+      "versions": [
+        "3.4.2.beta.1"
+      ],
+      "yanked_versions": {},
+      "deprecated": null
+    },
+    "stb": {
+      "versions": [
+        "0.0.0-20260516-31c1ad3"
+      ],
+      "yanked_versions": {},
+      "deprecated": null
+    },
+    "thorvg": {
+      "versions": [
+        "1.0.1.bcr.1",
+        "1.0.1.bcr.2",
+        "1.0.3",
+        "1.0.5"
+      ],
+      "yanked_versions": {},
+      "deprecated": null
+    },
+    "uriparser": {
+      "versions": [
+        "1.0.2"
+      ],
+      "yanked_versions": {},
+      "deprecated": null
+    },
+    "webui": {
+      "versions": [
+        "2.5.0.bcr.beta.1"
+      ],
+      "yanked_versions": {},
+      "deprecated": null
+    },
+    "yoga": {
+      "versions": [
+        "3.2.1"
+      ],
+      "yanked_versions": {},
+      "deprecated": null
+    }
+  }
+}

@@ -1,0 +1,230 @@
+load("@bazel_skylib//lib:selects.bzl", "selects")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+# Config setting for Linux with GCC (needs -latomic for 64-bit atomics)
+config_setting(
+    name = "linux_gcc",
+    constraint_values = ["@platforms//os:linux"],
+    flag_values = {"@bazel_tools//tools/cpp:compiler": "gcc"},
+)
+
+# Common compiler flags
+COPTS_COMMON = [
+    "-Wall",
+    "-Wextra",
+    "-Wno-implicit-fallthrough",
+    "-Wno-sign-compare",
+    "-Wno-missing-field-initializers",
+    "-Wno-unused-parameter",
+    "-Wno-unused-but-set-variable",
+    "-Wno-unused-result",
+    "-Wno-array-bounds",
+    "-funsigned-char",
+]
+
+# Windows/MSVC specific flags
+COPTS_MSVC = [
+    "/wd4018",  # -Wno-sign-conversion
+    "/wd4061",  # -Wno-implicit-fallthrough
+    "/wd4100",  # -Wno-unused-parameter
+    "/wd4200",  # -Wno-zero-length-array
+    "/wd4242",  # -Wno-shorten-64-to-32
+    "/wd4244",  # -Wno-shorten-64-to-32
+    "/wd4245",  # -Wno-sign-compare
+    "/wd4267",  # -Wno-shorten-64-to-32
+    "/wd4388",  # -Wno-sign-compare
+    "/wd4389",  # -Wno-sign-compare
+    "/wd4456",  # Hides previous local declaration
+    "/wd4457",  # Hides function parameter
+    "/wd4710",  # Function not inlined
+    "/wd4711",  # Function was inlined
+    "/wd4820",  # Padding added after construct
+    "/wd4996",  # -Wdeprecated-declarations
+    "/wd5045",  # Spectre mitigation
+    "/experimental:c11atomics",
+    "/std:c11",
+]
+
+# Common defines
+DEFINES_COMMON = [
+    "_GNU_SOURCE",
+]
+
+# Windows defines
+DEFINES_WINDOWS = [
+    "WIN32_LEAN_AND_MEAN",
+    "_WIN32_WINNT=0x0601",
+]
+
+# Core QuickJS Library
+cc_library(
+    name = "quickjs",
+    srcs = [
+        "cutils.c",
+        "dtoa.c",
+        "libregexp.c",
+        "libunicode.c",
+        "quickjs.c",
+        "quickjs-libc.c",
+    ],
+    hdrs = [
+        "builtin-array-fromasync.h",
+        "cutils.h",
+        "dtoa.h",
+        "libregexp.h",
+        "libregexp-opcode.h",
+        "libunicode.h",
+        "libunicode-table.h",
+        "list.h",
+        "quickjs.h",
+        "quickjs-atom.h",
+        "quickjs-c-atomics.h",
+        "quickjs-libc.h",
+        "quickjs-opcode.h",
+    ],
+    copts = select({
+        "@platforms//os:windows": COPTS_MSVC,
+        "//conditions:default": COPTS_COMMON,
+    }),
+    defines = DEFINES_COMMON + select({
+        "@platforms//os:windows": DEFINES_WINDOWS,
+        "//conditions:default": [],
+    }),
+    linkopts = selects.with_or({
+        "@platforms//os:windows": [],
+        ":linux_gcc": [
+            "-lm",
+            "-lpthread",
+            "-ldl",
+            "-latomic",
+        ],
+        ("@platforms//os:linux", "//conditions:default"): [
+            "-lm",
+            "-lpthread",
+            "-ldl",
+        ],
+    }),
+)
+
+alias(
+    name = "quickjs-ng",
+    actual = ":quickjs",
+)
+
+# QuickJS Bytecode Compiler
+cc_binary(
+    name = "qjsc",
+    srcs = ["qjsc.c"],
+    copts = select({
+        "@platforms//os:windows": COPTS_MSVC,
+        "//conditions:default": COPTS_COMMON,
+    }),
+    deps = [":quickjs"],
+)
+
+# QuickJS CLI (Repl)
+cc_binary(
+    name = "qjs",
+    srcs = [
+        "gen/repl.c",
+        "gen/standalone.c",
+        "qjs.c",
+    ],
+    copts = select({
+        "@platforms//os:windows": COPTS_MSVC,
+        "//conditions:default": COPTS_COMMON,
+    }),
+    deps = [":quickjs"],
+)
+
+# Test262 Runner
+cc_binary(
+    name = "run-test262",
+    srcs = ["run-test262.c"],
+    copts = select({
+        "@platforms//os:windows": COPTS_MSVC,
+        "//conditions:default": COPTS_COMMON,
+    }),
+    deps = [":quickjs"],
+)
+
+# API Test
+cc_binary(
+    name = "api-test",
+    srcs = ["api-test.c"],
+    copts = select({
+        "@platforms//os:windows": COPTS_MSVC,
+        "//conditions:default": COPTS_COMMON,
+    }),
+    deps = [":quickjs"],
+)
+
+# Unicode Generator (Standalone, does not link libqjs)
+cc_binary(
+    name = "unicode_gen",
+    srcs = [
+        "cutils.c",
+        "cutils.h",
+        "libunicode.c",
+        "libunicode.h",
+        "libunicode-table.h",
+        "unicode_gen.c",
+        "unicode_gen_def.h",
+    ],
+    copts = select({
+        "@platforms//os:windows": COPTS_MSVC,
+        "//conditions:default": COPTS_COMMON,
+    }),
+    defines = DEFINES_COMMON + select({
+        "@platforms//os:windows": DEFINES_WINDOWS,
+        "//conditions:default": [],
+    }),
+)
+
+# Function Source Generator
+cc_binary(
+    name = "function_source",
+    srcs = ["gen/function_source.c"],
+    copts = select({
+        "@platforms//os:windows": COPTS_MSVC,
+        "//conditions:default": COPTS_COMMON,
+    }),
+    deps = [":quickjs"],
+)
+
+# Examples
+
+cc_binary(
+    name = "hello",
+    srcs = ["gen/hello.c"],
+    copts = select({
+        "@platforms//os:windows": COPTS_MSVC,
+        "//conditions:default": COPTS_COMMON,
+    }),
+    deps = [":quickjs"],
+)
+
+cc_binary(
+    name = "hello_module",
+    srcs = ["gen/hello_module.c"],
+    copts = select({
+        "@platforms//os:windows": COPTS_MSVC,
+        "//conditions:default": COPTS_COMMON,
+    }),
+    deps = [":quickjs"],
+)
+
+cc_binary(
+    name = "test_fib",
+    srcs = [
+        "examples/fib.c",
+        "gen/test_fib.c",
+    ],
+    copts = select({
+        "@platforms//os:windows": COPTS_MSVC,
+        "//conditions:default": COPTS_COMMON,
+    }),
+    deps = [":quickjs"],
+)

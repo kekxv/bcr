@@ -1,0 +1,10 @@
+{
+  "url": "https://github.com/mackron/miniaudio/archive/refs/tags/0.11.25.tar.gz",
+  "integrity": "sha256-uQDtz/6XmBbiVgoFgLmxIW1nS08X+63sqPd3p/irAnQ=",
+  "strip_prefix": "miniaudio-0.11.25",
+  "patch_strip": 0,
+  "overlay": {
+    "BUILD.bazel": "sha256-fluotux8GzZRH2t2KWXo8OzbVZYHAGykDO8Fv36xVmg=",
+    "MODULE.bazel": "sha256-zQOO+upzqmr1K9szEmEuAe5/HHznokkM/z1/v7KIQlE="
+  }
+}

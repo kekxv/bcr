@@ -1,0 +1,21 @@
+===================================================================
+--- include/build_config/SDL_build_config.h
++++ include/build_config/SDL_build_config.h
+@@ -44,8 +44,10 @@
+ #elif defined(SDL_PLATFORM_IOS)
+ #include "SDL_build_config_ios.h"
+ #elif defined(SDL_PLATFORM_ANDROID)
+ #include "SDL_build_config_android.h"
++#elif defined(SDL_PLATFORM_LINUX)
++#include "SDL_build_config_linux.h"
+ #else
+ /* This is a minimal configuration just to get SDL running on new platforms. */
+ #include "SDL_build_config_minimal.h"
+ #endif /* platform config */
+@@ -53,5 +55,5 @@
+ #ifdef USING_GENERATED_CONFIG_H
+ #error Wrong SDL_build_config.h, check your include path?
+ #endif
+ 
+-#endif /* SDL_build_config_h_ */
++#endif /* SDL_build_config_h_ */

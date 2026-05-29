@@ -1,0 +1,19 @@
+{
+    "homepage": "https://www.libsdl.org/",
+    "maintainers": [
+        {
+            "email": "caesar@kekxv.com",
+            "github": "kekxv",
+            "github_user_id": 15551108,
+            "name": "kekxv"
+        }
+    ],
+    "repository": [
+        "github:libsdl-org/SDL"
+    ],
+    "versions": [
+        "3.4.2.beta.1"
+    ],
+    "yanked_versions": {}
+}
+
