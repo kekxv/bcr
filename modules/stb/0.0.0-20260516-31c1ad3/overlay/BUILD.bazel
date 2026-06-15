@@ -12,12 +12,19 @@ write_file(
 )
 
 cc_library(
+    name = "stb_image_header",
+    hdrs = ["stb_image.h"],
+    includes = ["."],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
     name = "stb_image",
     srcs = [":stb_image_impl"],
-    hdrs = ["stb_image.h"],
     includes = ["."],
     local_defines = ["STB_IMAGE_IMPLEMENTATION"],
     visibility = ["//visibility:public"],
+    deps = [":stb_image_header"],
 )
 
 [
