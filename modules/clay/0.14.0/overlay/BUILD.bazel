@@ -1,0 +1,19 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+# Core Clay library (header-only)
+cc_library(
+    name = "clay",
+    hdrs = ["clay.h"],
+    copts = [
+        "-std=c99",
+    ] + select({
+        "@platforms//os:windows": [],
+        "//conditions:default": [
+            "-Wall",
+            "-Wextra",
+            "-Wno-unused-function",
+        ],
+    }),
+)

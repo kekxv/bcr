@@ -1,0 +1,9 @@
+{
+  "integrity": "sha256-7o9kdwIN1yr+jPb406toVZgAKCiaK2d6FCPRequYNYU=",
+  "strip_prefix": "clay-0.14",
+  "url": "https://github.com/nicbarker/clay/archive/refs/tags/v0.14.tar.gz",
+  "overlay": {
+    "BUILD.bazel": "sha256-1/8ZTmaurO9Ges83wsR/fq8nqMB3FnxgPvD0AmzvUAE=",
+    "MODULE.bazel": "sha256-dWgsztWDNG3imhjydCnorOtfLYBBQpvYRTyv+n4U6FQ="
+  }
+}
