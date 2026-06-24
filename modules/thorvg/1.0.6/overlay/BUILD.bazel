@@ -118,7 +118,10 @@ cc_library(
         "src/loaders/lottie/thorvg_lottie.h",
     ],
     copts = select({
-        ":windows_msvc": ["-std=c++14"],
+        ":windows_msvc": [
+            "-std=c++14",
+            "-fopenmp",
+        ],
         "@platforms//os:windows": ["/std:c++14"],
         "//conditions:default": [
             "-std=c++14",
@@ -130,7 +133,6 @@ cc_library(
         "//conditions:default": [],
     }) + select({
         ":linux_threads_gcc": ["-fopenmp"],
-        ":windows_msvc": ["-fopenmp"],
         ":threads_windows": ["/openmp"],
         "//conditions:default": [],
     }),
