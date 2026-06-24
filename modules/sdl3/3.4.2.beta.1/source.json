@@ -3,7 +3,7 @@
   "integrity": "sha256-7zmi4/mop4KWxA2nAZZ90bDQ1uJn5IOGPOcPigO0BQw=",
   "strip_prefix": "SDL3-3.4.2",
   "overlay": {
-    "BUILD.bazel": "sha256-Qo4nF9R2aOKckMIlyvWz/u86DWV7Ggxga75TjvNbQ98=",
+    "BUILD.bazel": "sha256-RhKNeTZMwb4ozNvFfcLmzfb0/M1LnxyZZrjpe1T36co=",
     "MODULE.bazel": "sha256-HGd9YM2NE9pmu1eZIRgTeGHFXaz+lJAThVNPbfNHcAM=",
     "sdl3_config_checks.bzl": "sha256-bgUZmge4F3Ntg4mdRt9bnL4F0uH8CXLZHSZ6VYvgpV4=",
     "include/build_config/SDL_build_config_linux.h": "sha256-wmoznggZEDPQh9WGtDuISgWbEJixAa68x4v0zeQedJ0="

@@ -1,15 +1,16 @@
-load("@rules_objc//:objc.bzl", "objc_library")
-load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@rules_cc_autoconf//autoconf:defs.bzl", "autoconf", "autoconf_hdr")
-load(":sdl3_config_checks.bzl",
+load("@rules_objc//:objc.bzl", "objc_library")
+load(
+    ":sdl3_config_checks.bzl",
     "SDL3_CONFIG_CHECKS_COMMON",
-    "SDL3_CONFIG_CHECKS_UNIX",
     "SDL3_CONFIG_CHECKS_LINUX",
-    "SDL3_CONFIG_CHECKS_LINUX_X11",
     "SDL3_CONFIG_CHECKS_LINUX_OPENGL",
     "SDL3_CONFIG_CHECKS_LINUX_OPENGLES",
+    "SDL3_CONFIG_CHECKS_LINUX_X11",
     "SDL3_CONFIG_CHECKS_MACOS",
+    "SDL3_CONFIG_CHECKS_UNIX",
     "SDL3_CONFIG_CHECKS_WINDOWS",
 )
 
@@ -157,9 +158,12 @@ autoconf(
 # Header libraries
 cc_library(
     name = "sdl3_build_config",
-    hdrs = glob(["include/build_config/*.h"], exclude = [
-        "include/build_config/SDL_build_config.h.in",
-    ]),
+    hdrs = glob(
+        ["include/build_config/*.h"],
+        exclude = [
+            "include/build_config/SDL_build_config.h.in",
+        ],
+    ),
     includes = ["include/build_config"],
     strip_include_prefix = "include",
     visibility = ["//visibility:private"],
@@ -167,12 +171,16 @@ cc_library(
 
 cc_library(
     name = "sdl3_headers",
-    hdrs = glob(["include/SDL3/*.h"]),
+    hdrs = glob([
+        "include/SDL3/*.h",
+        "include/sdl3/*.h",
+    ]),
+    allow_empty = True,
+    strip_include_prefix = "include",
+    visibility = ["//visibility:public"],
     deps = [
         ":sdl3_build_config",
     ],
-    strip_include_prefix = "include",
-    visibility = ["//visibility:public"],
 )
 
 cc_library(
@@ -186,12 +194,12 @@ cc_library(
     name = "sdl3_private_headers",
     hdrs = glob(["src/**/*.h"]),
     includes = ["src"],
+    visibility = ["//visibility:private"],
     deps = [
         ":sdl3_build_config",
         ":sdl3_headers",
         ":sdl3_khronos_headers",
     ],
-    visibility = ["//visibility:private"],
 )
 
 # Common source files (platform-agnostic)
@@ -247,34 +255,37 @@ COMMON_SRCS = glob([
 ])
 
 # Linux-specific sources (without X11 and OpenGL)
-LINUX_SRCS = glob([
-    "src/core/linux/*.c",
-    "src/core/unix/*.c",
-    "src/dialog/unix/*.c",
-    "src/filesystem/posix/*.c",
-    "src/filesystem/unix/*.c",
-    "src/haptic/linux/*.c",
-    "src/joystick/linux/*.c",
-    "src/joystick/virtual/*.c",
-    "src/loadso/dlopen/*.c",
-    "src/locale/unix/*.c",
-    "src/misc/unix/*.c",
-    "src/power/linux/*.c",
-    "src/process/posix/*.c",
-    "src/thread/pthread/*.c",
-    "src/time/unix/*.c",
-    "src/timer/unix/*.c",
-    "src/tray/unix/*.c",
-    "src/render/opengles2/*.c",
-    "src/gpu/vulkan/*.c",
-], exclude = [
-    "src/core/linux/SDL_dbus.c",
-    "src/core/linux/SDL_fcitx.c",
-    "src/core/linux/SDL_ibus.c",
-    "src/core/linux/SDL_ime.c",
-    "src/core/linux/SDL_udev.c",
-    "src/core/linux/SDL_system_theme.c",
-])
+LINUX_SRCS = glob(
+    [
+        "src/core/linux/*.c",
+        "src/core/unix/*.c",
+        "src/dialog/unix/*.c",
+        "src/filesystem/posix/*.c",
+        "src/filesystem/unix/*.c",
+        "src/haptic/linux/*.c",
+        "src/joystick/linux/*.c",
+        "src/joystick/virtual/*.c",
+        "src/loadso/dlopen/*.c",
+        "src/locale/unix/*.c",
+        "src/misc/unix/*.c",
+        "src/power/linux/*.c",
+        "src/process/posix/*.c",
+        "src/thread/pthread/*.c",
+        "src/time/unix/*.c",
+        "src/timer/unix/*.c",
+        "src/tray/unix/*.c",
+        "src/render/opengles2/*.c",
+        "src/gpu/vulkan/*.c",
+    ],
+    exclude = [
+        "src/core/linux/SDL_dbus.c",
+        "src/core/linux/SDL_fcitx.c",
+        "src/core/linux/SDL_ibus.c",
+        "src/core/linux/SDL_ime.c",
+        "src/core/linux/SDL_udev.c",
+        "src/core/linux/SDL_system_theme.c",
+    ],
+)
 
 # Linux X11 sources (conditional)
 LINUX_X11_SRCS = glob([
@@ -333,11 +344,11 @@ objc_library(
         "src/tray/cocoa/*.m",
         "src/video/cocoa/*.m",
     ]),
+    visibility = ["//visibility:private"],
     deps = [
         ":sdl3_headers",
         ":sdl3_private_headers",
     ],
-    visibility = ["//visibility:private"],
 )
 
 # Windows-specific sources
@@ -480,6 +491,69 @@ cc_library(
         "//conditions:default": [],
     }) + select({
         ":windows": WINDOWS_GENERIC_THREAD_SRCS,
+        "//conditions:default": [],
+    }),
+    implementation_deps = [
+        ":sdl3_private_headers",
+    ] + select({
+        ":macos": [":SDL3_objc"],
+        ":linux_x11": [
+            "@libx11",
+            "@libxcursor",
+            "@libxext",
+            "@libxfixes",
+            "@libxi",
+            "@libxrandr",
+            "@libxrender",
+        ],
+        "//conditions:default": [],
+    }),
+    linkopts = select({
+        ":linux": [
+            "-lpthread",
+            "-ldl",
+            "-lm",
+            "-lrt",
+        ],
+        ":macos": [
+            "-liconv",
+            "-framework CoreFoundation",
+            "-framework Foundation",
+            "-framework CoreAudio",
+            "-framework AudioToolbox",
+            "-framework AppKit",
+            "-framework CoreVideo",
+            "-framework IOKit",
+            "-framework Metal",
+            "-framework QuartzCore",
+            "-framework GameController",
+            "-framework CoreGraphics",
+            "-framework ForceFeedback",
+            "-framework Carbon",
+            "-weak_framework CoreHaptics",
+            "-framework AVFoundation",
+            "-framework CoreMedia",
+        ],
+        ":windows": [
+            "user32.lib",
+            "gdi32.lib",
+            "winmm.lib",
+            "imm32.lib",
+            "ole32.lib",
+            "oleaut32.lib",
+            "version.lib",
+            "uuid.lib",
+            "advapi32.lib",
+            "setupapi.lib",
+            "shell32.lib",
+            "dxguid.lib",
+            "dinput8.lib",
+            "cfgmgr32.lib",
+        ],
+        "//conditions:default": [],
+    }) + select({
+        ":linux_opengl": ["-lGL"],
+        ":macos": ["-framework OpenGL"],
         "//conditions:default": [],
     }),
     local_defines = SDL_HAVE_DEFINES_COMMON + select({
@@ -686,69 +760,6 @@ cc_library(
     deps = [
         ":sdl3_headers",
     ],
-    implementation_deps = [
-        ":sdl3_private_headers",
-    ] + select({
-        ":macos": [":SDL3_objc"],
-        ":linux_x11": [
-            "@libx11//:libx11",
-            "@libxext//:libxext",
-            "@libxcursor//:libxcursor",
-            "@libxrandr//:libxrandr",
-            "@libxi//:libxi",
-            "@libxfixes//:libxfixes",
-            "@libxrender//:libxrender",
-        ],
-        "//conditions:default": [],
-    }),
-    linkopts = select({
-        ":linux": [
-            "-lpthread",
-            "-ldl",
-            "-lm",
-            "-lrt",
-        ],
-        ":macos": [
-            "-liconv",
-            "-framework CoreFoundation",
-            "-framework Foundation",
-            "-framework CoreAudio",
-            "-framework AudioToolbox",
-            "-framework AppKit",
-            "-framework CoreVideo",
-            "-framework IOKit",
-            "-framework Metal",
-            "-framework QuartzCore",
-            "-framework GameController",
-            "-framework CoreGraphics",
-            "-framework ForceFeedback",
-            "-framework Carbon",
-            "-weak_framework CoreHaptics",
-            "-framework AVFoundation",
-            "-framework CoreMedia",
-        ],
-        ":windows": [
-            "user32.lib",
-            "gdi32.lib",
-            "winmm.lib",
-            "imm32.lib",
-            "ole32.lib",
-            "oleaut32.lib",
-            "version.lib",
-            "uuid.lib",
-            "advapi32.lib",
-            "setupapi.lib",
-            "shell32.lib",
-            "dxguid.lib",
-            "dinput8.lib",
-            "cfgmgr32.lib",
-        ],
-        "//conditions:default": [],
-    }) + select({
-        ":linux_opengl": ["-lGL"],
-        ":macos": ["-framework OpenGL"],
-        "//conditions:default": [],
-    }),
 )
 
 # SDL3 main library with platform-specific entry point
@@ -774,9 +785,9 @@ alias(
 cc_library(
     name = "SDL3_test",
     srcs = glob(["src/test/*.c"]),
+    visibility = ["//visibility:public"],
     deps = [
         ":sdl3_headers",
         ":sdl3_private_headers",
     ],
-    visibility = ["//visibility:public"],
 )
