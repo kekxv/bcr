@@ -13,6 +13,11 @@ bool_flag(
 )
 
 bool_flag(
+    name = "openmp",
+    build_setting_default = True,
+)
+
+bool_flag(
     name = "loaders",
     build_setting_default = True,
 )
@@ -27,12 +32,6 @@ config_setting(
     name = "THORVG_NEON_VECTOR_SUPPORT",
     constraint_values = ["@platforms//cpu:aarch64"],
     flag_values = {":simd": "True"},
-)
-
-config_setting(
-    name = "threads_linux",
-    constraint_values = ["@platforms//os:linux"],
-    flag_values = {":threads": "True"},
 )
 
 config_setting(
@@ -52,25 +51,45 @@ config_setting(
     flag_values = {":threads": "True"},
 )
 
+config_setting(
+    name = "linux_riscv64",
+    constraint_values = [
+        "@platforms//cpu:riscv64",
+        "@platforms//os:linux",
+    ],
+)
+
+config_setting(
+    name = "openmp_enabled",
+    flag_values = {":openmp": "True"},
+)
+
 # Config setting for Windows with MSVC (cl.exe)
 config_setting(
     name = "windows_msvc",
     flag_values = {"@bazel_tools//tools/cpp:compiler": "msvc-cl"},
 )
 
-# Config setting for Linux with GCC (needs -lgomp for OpenMP)
+# Config setting for Linux with GCC.
 config_setting(
     name = "linux_gcc",
     constraint_values = ["@platforms//os:linux"],
     flag_values = {"@bazel_tools//tools/cpp:compiler": "gcc"},
 )
 
-# Linux + threads enabled + GCC compiler (OpenMP supported)
 selects.config_setting_group(
-    name = "linux_threads_gcc",
+    name = "linux_openmp_gcc",
     match_all = [
-        ":threads_linux",
+        ":openmp_enabled",
         ":linux_gcc",
+    ],
+)
+
+selects.config_setting_group(
+    name = "windows_openmp_msvc",
+    match_all = [
+        ":openmp_enabled",
+        ":windows_msvc",
     ],
 )
 
@@ -128,8 +147,11 @@ cc_library(
         ":THORVG_AVX_VECTOR_SUPPORT": ["-mavx2"],
         "//conditions:default": [],
     }) + select({
-        ":linux_threads_gcc": ["-fopenmp"],
-        ":windows_msvc": ["/openmp"],
+        ":linux_openmp_gcc": ["-fopenmp"],
+        ":windows_openmp_msvc": ["/openmp"],
+        "//conditions:default": [],
+    }) + select({
+        ":linux_riscv64": ["-Wno-error"],
         "//conditions:default": [],
     }),
     defines = [
@@ -149,6 +171,10 @@ cc_library(
         "THORVG_CAPI_BINDING_SUPPORT=1",
     ] + select({
         ":THORVG_THREAD_SUPPORT": ["THORVG_THREAD_SUPPORT=1"],
+        "//conditions:default": [],
+    }) + select({
+        ":linux_openmp_gcc": ["THORVG_OPENMP_SUPPORT=1"],
+        ":windows_openmp_msvc": ["THORVG_OPENMP_SUPPORT=1"],
         "//conditions:default": [],
     }) + select({
         "@platforms//os:windows": [
@@ -183,7 +209,7 @@ cc_library(
         "src/savers/gif",
     ],
     linkopts = selects.with_or({
-        ":linux_threads_gcc": [
+        ":linux_openmp_gcc": [
             "-lpthread",
             "-lm",
             "-lgomp",
@@ -193,6 +219,9 @@ cc_library(
             "-lpthread",
             "-lm",
         ],
+    }) + select({
+        ":linux_riscv64": ["-latomic"],
+        "//conditions:default": [],
     }),
     visibility = ["//visibility:public"],
 )
@@ -213,6 +242,9 @@ cc_test(
     copts = select({
         ":windows_msvc": ["/std:c++14"],
         "//conditions:default": ["-std=c++14"],
+    }) + select({
+        ":linux_riscv64": ["-Wno-error"],
+        "//conditions:default": [],
     }),
     includes = ["test"],
     deps = [

@@ -3,7 +3,7 @@
     "strip_prefix": "thorvg-1.0.6",
     "url": "https://github.com/thorvg/thorvg/releases/download/v1.0.6/thorvg-1.0.6.tar.xz",
     "overlay": {
-        "BUILD.bazel": "sha256-ZS4oW4rvb9uRc7dYpaw068R6r3B4zkIWFUQROQdlXRw=",
+        "BUILD.bazel": "sha256-NtT7wNPjPk0u5ULwRwAxfEbHDOar0dUyZzu/AyENrXM=",
         "MODULE.bazel": "sha256-532kxGMZuknuuD0yJ0FpqPwgOEvp8ZydwF/dC99hTs4="
     }
 }
