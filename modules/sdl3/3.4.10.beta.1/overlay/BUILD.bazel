@@ -3,13 +3,13 @@ load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@rules_cc_autoconf//autoconf:defs.bzl", "autoconf")
 load("@rules_objc//:objc.bzl", "objc_library")
-load(":sdl3_lowercase_headers.bzl", "lowercase_headers")
 load(
     ":sdl3_config_checks.bzl",
     "SDL3_CONFIG_CHECKS_LINUX",
     "SDL3_CONFIG_CHECKS_MACOS",
     "SDL3_CONFIG_CHECKS_WINDOWS",
 )
+load(":sdl3_lowercase_headers.bzl", "lowercase_headers")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -205,8 +205,8 @@ cc_library(
 
 lowercase_headers(
     name = "sdl3_headers_lower_files",
-    out_dir = "generated/sdl3_lower_headers",
     srcs = glob(["include/SDL3/*.h"]),
+    out_dir = "generated/sdl3_lower_headers",
 )
 
 cc_library(
@@ -263,9 +263,12 @@ cc_library(
         ":sdl3_khronos_headers",
     ] + select({
         "@rules_cc//cc/compiler:msvc-cl": [
+            ":sdl3_build_config",
             ":sdl3_build_config_lower",
-            ":sdl3_headers_lower",
+            ":sdl3_headers",
+            ":sdl3_headers_flat",
             ":sdl3_headers_flat_lower",
+            ":sdl3_headers_lower",
         ],
         "//conditions:default": [
             ":sdl3_build_config",
@@ -861,8 +864,8 @@ cc_library(
     ],
     deps = select({
         "@rules_cc//cc/compiler:msvc-cl": [
-            ":sdl3_headers_lower",
             ":sdl3_headers_flat_lower",
+            ":sdl3_headers_lower",
         ],
         "//conditions:default": [
             ":sdl3_headers",
