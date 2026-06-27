@@ -9,7 +9,6 @@ load(
     "SDL3_CONFIG_CHECKS_MACOS",
     "SDL3_CONFIG_CHECKS_WINDOWS",
 )
-load(":sdl3_lowercase_headers.bzl", "lowercase_headers")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -166,29 +165,9 @@ write_file(
     ],
 )
 
-write_file(
-    name = "gen_sdl_build_config_lower_h",
-    out = "generated/sdl_build_config.h",
-    content = [
-        "#ifndef SDL_build_config_h_",
-        "#define SDL_build_config_h_",
-        "",
-        "#include <SDL3/SDL_platform_defines.h>",
-        "",
-        "#endif /* SDL_build_config_h_ */",
-    ],
-)
-
 cc_library(
     name = "sdl3_build_config",
     hdrs = [":gen_sdl_build_config_h"],
-    strip_include_prefix = "generated",
-    visibility = ["//visibility:private"],
-)
-
-cc_library(
-    name = "sdl3_build_config_lower",
-    hdrs = [":gen_sdl_build_config_lower_h"],
     strip_include_prefix = "generated",
     visibility = ["//visibility:private"],
 )
@@ -203,23 +182,6 @@ cc_library(
     ],
 )
 
-lowercase_headers(
-    name = "sdl3_headers_lower_files",
-    srcs = glob(["include/SDL3/*.h"]),
-    out_dir = "generated/sdl3_lower_headers",
-)
-
-cc_library(
-    name = "sdl3_headers_lower",
-    hdrs = [":sdl3_headers_lower_files"],
-    include_prefix = "sdl3",
-    strip_include_prefix = "generated/sdl3_lower_headers",
-    visibility = ["//visibility:public"],
-    deps = [
-        ":sdl3_build_config_lower",
-    ],
-)
-
 cc_library(
     name = "sdl3_headers_flat",
     hdrs = glob(["include/SDL3/*.h"]),
@@ -227,16 +189,6 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":sdl3_build_config",
-    ],
-)
-
-cc_library(
-    name = "sdl3_headers_flat_lower",
-    hdrs = [":sdl3_headers_lower_files"],
-    strip_include_prefix = "generated/sdl3_lower_headers",
-    visibility = ["//visibility:public"],
-    deps = [
-        ":sdl3_build_config_lower",
     ],
 )
 
@@ -249,33 +201,15 @@ cc_library(
 
 cc_library(
     name = "sdl3_private_headers",
-    hdrs = select({
-        "@rules_cc//cc/compiler:msvc-cl": glob(["src/**/*.h"]) + [
-            hdr.lower()
-            for hdr in glob(["src/**/*.h"])
-            if hdr.lower() != hdr
-        ],
-        "//conditions:default": glob(["src/**/*.h"]),
-    }),
+    hdrs = glob(["src/**/*.h"]),
     includes = ["src"],
     visibility = ["//visibility:private"],
     deps = [
+        ":sdl3_build_config",
+        ":sdl3_headers",
+        ":sdl3_headers_flat",
         ":sdl3_khronos_headers",
-    ] + select({
-        "@rules_cc//cc/compiler:msvc-cl": [
-            ":sdl3_build_config",
-            ":sdl3_build_config_lower",
-            ":sdl3_headers",
-            ":sdl3_headers_flat",
-            ":sdl3_headers_flat_lower",
-            ":sdl3_headers_lower",
-        ],
-        "//conditions:default": [
-            ":sdl3_build_config",
-            ":sdl3_headers",
-            ":sdl3_headers_flat",
-        ],
-    }),
+    ],
 )
 
 # Common source files (platform-agnostic)
@@ -862,16 +796,10 @@ cc_library(
         "src/hidapi/windows/hid.c",
         "src/hidapi/windows/hidapi_descriptor_reconstruct.c",
     ],
-    deps = select({
-        "@rules_cc//cc/compiler:msvc-cl": [
-            ":sdl3_headers_flat_lower",
-            ":sdl3_headers_lower",
-        ],
-        "//conditions:default": [
-            ":sdl3_headers",
-            ":sdl3_headers_flat",
-        ],
-    }),
+    deps = [
+        ":sdl3_headers",
+        ":sdl3_headers_flat",
+    ],
 )
 
 # SDL3 main library with platform-specific entry point
