@@ -12,7 +12,8 @@
         "github:libsdl-org/SDL"
     ],
     "versions": [
-        "3.4.2.beta.1"
+        "3.4.2.beta.1",
+        "3.4.10.beta.1"
     ],
     "yanked_versions": {}
 }
