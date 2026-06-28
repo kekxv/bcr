@@ -30,7 +30,7 @@ bool_flag(
 
 bool_flag(
     name = "x11",
-    build_setting_default = False,
+    build_setting_default = True,
 )
 
 bool_flag(
@@ -354,8 +354,6 @@ objc_library(
         "src/tray/cocoa/*.m",
         "src/video/cocoa/*.m",
     ]),
-    tags = ["manual"],
-    target_compatible_with = ["@platforms//os:macos"],
     visibility = ["//visibility:private"],
     deps = [
         ":sdl3_headers",
