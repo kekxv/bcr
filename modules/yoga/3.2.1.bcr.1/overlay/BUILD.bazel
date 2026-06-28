@@ -28,6 +28,12 @@ cc_library(
     visibility = ["//visibility:public"],
 )
 
+bool_flag(
+    name = "yoga_legacy_cxx20_compat",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
 config_setting(
     name = "release_build",
     values = {"compilation_mode": "opt"},
@@ -97,7 +103,7 @@ config_setting(
         "@platforms//cpu:arm",
         "@platforms//os:linux",
     ],
-    define_values = {"yoga_legacy_cxx20_compat": "true"},
+    flag_values = {":yoga_legacy_cxx20_compat": "true"},
     visibility = ["//yoga:__subpackages__"],
 )
 
@@ -107,6 +113,6 @@ config_setting(
         "@platforms//cpu:riscv64",
         "@platforms//os:linux",
     ],
-    define_values = {"yoga_legacy_cxx20_compat": "true"},
+    flag_values = {":yoga_legacy_cxx20_compat": "true"},
     visibility = ["//yoga:__subpackages__"],
 )
