@@ -6,7 +6,7 @@
     "benchmark/BUILD.bazel": "sha256-lkGz46HlWqTzfUqMqC5G4MEc4aOSBSXxTkBKOvRyHmk=",
     "tests/BUILD.bazel": "sha256-gAN0fMHfw+QXsuVKKT8cfm5q+f0elYf0DgZSU5mVPgo=",
     "yoga/BUILD.bazel": "sha256-APQ9HL8Y/F8bYgnsRzF4u9mCgelhp7BYSSVgbkSFnkg=",
-    "BUILD.bazel": "sha256-W0RdUQdyynqhJBKq4mzAFw5qC40/XsrUyBVtmsdaMKw=",
+    "BUILD.bazel": "sha256-HYySeQ78rZdCx2N6j2wNeUjTXPHrYICY/pClb3hDKiU=",
     "MODULE.bazel": "sha256-c4va/+Ii6QW0GEV9WxYyzgBB0VUF1X+ROcBcShgTRTw="
   }
 }
