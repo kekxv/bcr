@@ -1,5 +1,5 @@
 {
-  "homepage": "https://github.com/facebook/yoga",
+  "homepage": "https://github.com/react/yoga",
   "maintainers": [
     {
       "email": "caesar@kekxv.com",
@@ -9,10 +9,11 @@
     }
   ],
   "repository": [
-    "github:facebook/yoga"
+    "github:react/yoga"
   ],
   "versions": [
-    "3.2.1"
+    "3.2.1",
+    "3.2.1.bcr.1"
   ],
   "yanked_versions": {
   }
