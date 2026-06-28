@@ -359,14 +359,6 @@ cc_library(
             "/GR-",
             "/std:c++20",
         ],
-        "//:windows_msvc_legacy": [
-            "/Oy-",
-            "/EHsc",
-            "/W3",
-            "/WX",
-            "/GR-",
-            "/std:c++20",
-        ],
         "@platforms//os:windows": [
             "-fno-omit-frame-pointer",
             "-fexceptions",
