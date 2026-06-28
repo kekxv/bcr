@@ -70,6 +70,12 @@ config_setting(
 )
 
 config_setting(
+    name = "windows_msvc_legacy",
+    values = {"compiler": "msvc-cl"},
+    visibility = ["//yoga:__subpackages__"],
+)
+
+config_setting(
     name = "linux_arm",
     constraint_values = [
         "@platforms//cpu:arm",

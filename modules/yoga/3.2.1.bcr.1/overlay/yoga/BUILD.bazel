@@ -1,5 +1,5 @@
-load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_cc//cc:defs.bzl", "cc_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -319,11 +319,11 @@ filegroup(
     name = "cxx20_compat_headers",
     srcs = [
         ":cxx20_compat_bit",
+        ":cxx20_compat_comparison",
         ":cxx20_compat_concepts",
         ":cxx20_compat_prelude",
-        ":cxx20_compat_yoga_enums",
-        ":cxx20_compat_comparison",
         ":cxx20_compat_style_length",
+        ":cxx20_compat_yoga_enums",
     ],
 )
 
@@ -352,6 +352,14 @@ cc_library(
     }),
     copts = select({
         "//:windows_msvc": [
+            "/Oy-",
+            "/EHsc",
+            "/W3",
+            "/WX",
+            "/GR-",
+            "/std:c++20",
+        ],
+        "//:windows_msvc_legacy": [
             "/Oy-",
             "/EHsc",
             "/W3",
@@ -425,12 +433,12 @@ cc_library(
         ],
         "//conditions:default": [],
     }),
+    include_prefix = "yoga",
     includes = select({
         "//:linux_arm_legacy_cxx20_compat": ["compat"],
         "//:linux_riscv64_legacy_cxx20_compat": ["compat"],
         "//conditions:default": [],
     }),
-    include_prefix = "yoga",
     linkopts = select({
         "//:release_macos": ["-Wl,-dead_strip"],
         "//:release_ios": ["-Wl,-dead_strip"],
