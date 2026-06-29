@@ -1,5 +1,9 @@
 # Bazel Custom Registry
 
+[![Presubmit Checks](https://github.com/kekxv/bcr/actions/workflows/presubmit.yml/badge.svg)](https://github.com/kekxv/bcr/actions/workflows/presubmit.yml)
+[![Generate Module Diff](https://github.com/kekxv/bcr/actions/workflows/generate_diff.yml/badge.svg)](https://github.com/kekxv/bcr/actions/workflows/generate_diff.yml)
+[![Publish Registry](https://github.com/kekxv/bcr/actions/workflows/publish.yml/badge.svg)](https://github.com/kekxv/bcr/actions/workflows/publish.yml)
+
 A custom Bazel Central Registry (BCR) for hosting internal/private Bazel modules.
 
 ## Overview
@@ -139,6 +143,73 @@ All checks run in a single GitHub Actions job to conserve resources:
 6. **Presubmit Config** - Validate presubmit.yml structure
 7. **Attestations** - Validate attestations.json if present
 
+### Presubmit Test Configuration
+
+Each module version can define build/test tasks in `modules/<module>/<version>/presubmit.yml`.
+The test runner creates a temporary Bazel workspace and writes a generated `MODULE.bazel` for testing only.
+This does not modify the module's own `MODULE.bazel`.
+
+Basic example:
+
+```yaml
+matrix:
+  platform: [ubuntu2404, macos, windows]
+  bazel: [7.x, 8.x]
+
+tasks:
+  verify_targets:
+    build_targets:
+      - '@my_library//...'
+```
+
+When a module needs extra dependencies or toolchain setup only for CI testing, add `module_bazel_deps` and `module_bazel_extra`.
+They can be placed at the top level to apply to all tasks, or under a specific task to apply only to that task.
+
+```yaml
+module_bazel_deps:
+  - name: hermetic_cc_toolchain
+    version: "4.1.0"
+
+module_bazel_extra: |
+  toolchains = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains")
+  use_repo(toolchains, "zig_sdk")
+
+  register_toolchains(
+      "@zig_sdk//toolchain:aarch64-windows-gnu",
+      "@zig_sdk//toolchain:windows_amd64",
+      "@zig_sdk//toolchain:windows_arm64",
+      "@zig_sdk//toolchain:x86_64-windows-gnu",
+      "@zig_sdk//libc_aware/toolchain:all",
+  )
+
+matrix:
+  platform: [windows]
+  bazel: [8.x]
+
+tasks:
+  verify_windows_targets:
+    build_flags:
+      - "--verbose_failures"
+    build_targets:
+      - '@my_library//...'
+```
+
+Task-level configuration is also supported:
+
+```yaml
+tasks:
+  verify_with_zig:
+    build_targets:
+      - '@my_library//...'
+    module_bazel_deps:
+      - name: hermetic_cc_toolchain
+        version: "4.1.0"
+    module_bazel_extra: |
+      toolchains = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains")
+      use_repo(toolchains, "zig_sdk")
+      register_toolchains("@zig_sdk//libc_aware/toolchain:all")
+```
+
 ## License
 
 Apache 2.0
@@ -245,3 +316,70 @@ build --registry=https://your-org.github.io/bcr-custom-registry
 5. **MODULE.bazel** - 验证模块名匹配
 6. **Presubmit 配置** - 验证 presubmit.yml 结构
 7. **Attestations** - 验证 attestations.json（如果存在）
+
+### Presubmit 测试配置
+
+每个模块版本都可以在 `modules/<模块名>/<版本>/presubmit.yml` 中定义构建/测试任务。
+测试脚本会创建临时 Bazel workspace，并只为测试生成一个临时 `MODULE.bazel`。
+这不会修改模块自身的 `MODULE.bazel`。
+
+基础示例：
+
+```yaml
+matrix:
+  platform: [ubuntu2404, macos, windows]
+  bazel: [7.x, 8.x]
+
+tasks:
+  verify_targets:
+    build_targets:
+      - '@my_library//...'
+```
+
+如果模块只在 CI 测试时需要额外依赖或 toolchain 初始化，可以配置 `module_bazel_deps` 和 `module_bazel_extra`。
+它们可以放在顶层，应用到所有任务；也可以放到某个 task 下，只影响该 task。
+
+```yaml
+module_bazel_deps:
+  - name: hermetic_cc_toolchain
+    version: "4.1.0"
+
+module_bazel_extra: |
+  toolchains = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains")
+  use_repo(toolchains, "zig_sdk")
+
+  register_toolchains(
+      "@zig_sdk//toolchain:aarch64-windows-gnu",
+      "@zig_sdk//toolchain:windows_amd64",
+      "@zig_sdk//toolchain:windows_arm64",
+      "@zig_sdk//toolchain:x86_64-windows-gnu",
+      "@zig_sdk//libc_aware/toolchain:all",
+  )
+
+matrix:
+  platform: [windows]
+  bazel: [8.x]
+
+tasks:
+  verify_windows_targets:
+    build_flags:
+      - "--verbose_failures"
+    build_targets:
+      - '@my_library//...'
+```
+
+也支持 task 级别配置：
+
+```yaml
+tasks:
+  verify_with_zig:
+    build_targets:
+      - '@my_library//...'
+    module_bazel_deps:
+      - name: hermetic_cc_toolchain
+        version: "4.1.0"
+    module_bazel_extra: |
+      toolchains = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains")
+      use_repo(toolchains, "zig_sdk")
+      register_toolchains("@zig_sdk//libc_aware/toolchain:all")
+```

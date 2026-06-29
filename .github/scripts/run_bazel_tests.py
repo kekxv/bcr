@@ -13,6 +13,10 @@ import tempfile
 from pathlib import Path
 
 
+MODULE_BAZEL_DEPS_KEYS = ('module_bazel_deps', 'extra_bazel_deps')
+MODULE_BAZEL_EXTRA_KEYS = ('module_bazel_extra', 'module_bazel_append', 'extra_module_bazel')
+
+
 def parse_args():
   parser = argparse.ArgumentParser(description='Run Bazel tests for BCR modules')
   parser.add_argument('--platform', required=True, help='Platform name (e.g., ubuntu2404, macos, windows, linux_arm64)')
@@ -54,6 +58,101 @@ def should_run_for_platform(presubmit_platforms: list, current_platform: str) ->
     if runner == current_runner:
       return True
   return False
+
+
+def _as_list(value):
+  """Normalize scalar/list YAML values to a list."""
+  if value is None:
+    return []
+  if isinstance(value, list):
+    return value
+  return [value]
+
+
+def _quote_bazel_string(value) -> str:
+  return json.dumps(str(value))
+
+
+def _render_bazel_value(value) -> str:
+  if isinstance(value, bool):
+    return 'True' if value else 'False'
+  if isinstance(value, (int, float)):
+    return str(value)
+  return _quote_bazel_string(value)
+
+
+def render_bazel_dep(dep) -> str:
+  """Render one module_bazel_deps entry as a bazel_dep(...) line."""
+  if isinstance(dep, str):
+    stripped = dep.strip()
+    if stripped.startswith('bazel_dep('):
+      return stripped
+    raise ValueError(f"String module_bazel_deps entries must be complete bazel_dep(...) calls: {dep}")
+
+  if not isinstance(dep, dict):
+    raise ValueError(f"module_bazel_deps entries must be mappings or bazel_dep(...) strings: {dep}")
+
+  if 'name' not in dep:
+    raise ValueError(f"module_bazel_deps entry is missing required 'name': {dep}")
+
+  ordered_keys = ['name', 'version', 'repo_name', 'dev_dependency', 'max_compatibility_level']
+  parts = []
+
+  for key in ordered_keys:
+    if key in dep:
+      parts.append(f"{key} = {_render_bazel_value(dep[key])}")
+
+  for key in sorted(dep.keys()):
+    if key not in ordered_keys:
+      parts.append(f"{key} = {_render_bazel_value(dep[key])}")
+
+  return f"bazel_dep({', '.join(parts)})"
+
+
+def collect_module_bazel_deps(config: dict, task_config: dict) -> list:
+  """Collect extra bazel_dep entries from top-level and task-level config."""
+  deps = []
+  for source in (config, config.get('test_module', {}), config.get('bcr_test_module', {}), task_config):
+    if not isinstance(source, dict):
+      continue
+    for key in MODULE_BAZEL_DEPS_KEYS:
+      deps.extend(_as_list(source.get(key)))
+  return deps
+
+
+def collect_module_bazel_extra(config: dict, task_config: dict) -> str:
+  """Collect raw MODULE.bazel fragments from top-level and task-level config."""
+  fragments = []
+  for source in (config, config.get('test_module', {}), config.get('bcr_test_module', {}), task_config):
+    if not isinstance(source, dict):
+      continue
+    for key in MODULE_BAZEL_EXTRA_KEYS:
+      value = source.get(key)
+      if value:
+        fragments.append(str(value).strip())
+  return "\n\n".join(fragments)
+
+
+def create_test_module_content(module_name: str, version: str, config: dict, task_config: dict) -> str:
+  """Create MODULE.bazel content for the temporary test workspace."""
+  lines = [
+    'module(name = "test_workspace", version = "1.0.0")',
+    '',
+    f'bazel_dep(name = "{module_name}", version = "{version}")',
+  ]
+
+  extra_deps = collect_module_bazel_deps(config, task_config)
+  if extra_deps:
+    lines.append('')
+    for dep in extra_deps:
+      lines.append(render_bazel_dep(dep))
+
+  extra_content = collect_module_bazel_extra(config, task_config)
+  if extra_content:
+    lines.extend(['', extra_content])
+
+  lines.append('')
+  return "\n".join(lines)
 
 
 def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path: Path = None):
@@ -164,11 +263,14 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
           test_dir.mkdir(parents=True, exist_ok=True)
 
           # Create MODULE.bazel
-          module_content = f'''module(name = "test_workspace", version = "1.0.0")
-
-bazel_dep(name = "{module_name}", version = "{version}")
-'''
+          try:
+            module_content = create_test_module_content(module_name, version, config, task_config)
+          except ValueError as e:
+            print(f"    Invalid MODULE.bazel test configuration: {e}")
+            failed.append(f"{module_name}@{version}: {task_name} (invalid MODULE.bazel test configuration)")
+            continue
           (test_dir / "MODULE.bazel").write_text(module_content)
+          print(f"    Created MODULE.bazel with {len(module_content.splitlines())} lines")
 
           # Create BUILD.bazel
           (test_dir / "BUILD.bazel").write_text('')
