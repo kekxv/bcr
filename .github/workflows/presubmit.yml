@@ -50,8 +50,8 @@ jobs:
       - name: Detect changed modules
         id: detect
         run: |
-          python .github/scripts/detect_changes.py
-          python .github/scripts/detect_changes.py --output changes.json
+          python .github/scripts/detect_changes.py --base-ref ${{ github.event.pull_request.base.sha }}
+          python .github/scripts/detect_changes.py --base-ref ${{ github.event.pull_request.base.sha }} --output changes.json
           # Compact JSON to single line to avoid multi-line output issues
           echo "changes_json=$(jq -c . changes.json)" >> $GITHUB_OUTPUT
         env:
@@ -84,6 +84,7 @@ jobs:
           python .github/scripts/presubmit.py \
             --pr-number ${{ github.event.pull_request.number }} \
             --pr-labels "${{ steps.labels.outputs.labels }}" \
+            --base-ref ${{ github.event.pull_request.base.sha }} \
             2>&1 | tee presubmit-output.log
           # Check exit code
           exit_code=${PIPESTATUS[0]}

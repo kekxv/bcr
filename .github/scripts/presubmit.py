@@ -38,6 +38,22 @@ LABEL_TO_SKIP_CHECK = {
 }
 
 
+def resolve_default_base_ref() -> str:
+    """Resolve the default git ref to compare against."""
+    if os.environ.get('GITHUB_BASE_REF'):
+        return f"origin/{os.environ['GITHUB_BASE_REF']}"
+    return os.environ.get('DIFF_BASE_REF', 'origin/main')
+
+
+def git_ref_exists(ref: str) -> bool:
+    """Return whether a git ref or commit exists locally."""
+    result = subprocess.run(
+        ['git', 'rev-parse', '--verify', '--quiet', ref],
+        capture_output=True, text=True
+    )
+    return result.returncode == 0
+
+
 class Colors:
     """ANSI color codes for terminal output."""
     GREEN = '\033[92m'
@@ -63,10 +79,17 @@ class CheckResult:
 class PresubmitChecker:
     """Main presubmit checker class."""
 
-    def __init__(self, registry_path: str = ".", skip_checks: Optional[Set[str]] = None, fix: bool = False):
+    def __init__(
+        self,
+        registry_path: str = ".",
+        skip_checks: Optional[Set[str]] = None,
+        fix: bool = False,
+        base_ref: Optional[str] = None,
+    ):
         self.registry = RegistryClient(registry_path)
         self.skip_checks = skip_checks or set()
         self.fix = fix
+        self.base_ref = base_ref or resolve_default_base_ref()
         self.results: Dict[str, List[CheckResult]] = {}
         self.errors: List[str] = []
         self.warnings: List[str] = []
@@ -79,10 +102,16 @@ class PresubmitChecker:
         """
         changes: List[Tuple[str, Optional[str], str]] = []
 
+        if not git_ref_exists(self.base_ref):
+            print(f"{Colors.YELLOW}Warning: base ref '{self.base_ref}' was not found, falling back to metadata comparison{Colors.RESET}")
+            for module_name, version in self.detect_new_versions():
+                changes.append((module_name, version, 'new'))
+            return changes
+
         try:
             # Get changed files in modules/ directory
             result = subprocess.run(
-                ['git', 'diff', '--name-status', 'origin/main', '--', 'modules/'],
+                ['git', 'diff', '--name-status', self.base_ref, '--', 'modules/'],
                 capture_output=True, text=True, check=True
             )
 
@@ -727,6 +756,11 @@ def main():
     parser.add_argument('--pr-labels', help='Space-separated PR labels (for skip checks)')
     parser.add_argument('--skip-checks', nargs='+', help='Checks to skip')
     parser.add_argument('--fix', action='store_true', help='Auto-fix where possible')
+    parser.add_argument(
+        '--base-ref',
+        default=resolve_default_base_ref(),
+        help='Git ref or commit to compare changed modules against'
+    )
     args = parser.parse_args()
 
     skip_checks = set(args.skip_checks or [])
@@ -754,7 +788,7 @@ def main():
         print(f"Valid options: {VALID_SKIP_CHECKS}", file=sys.stderr)
         sys.exit(1)
 
-    checker = PresubmitChecker(skip_checks=skip_checks, fix=args.fix)
+    checker = PresubmitChecker(skip_checks=skip_checks, fix=args.fix, base_ref=args.base_ref)
     exit_code = checker.run(args.pr_number)
 
     sys.exit(exit_code)

@@ -62,21 +62,42 @@ def detect_new_versions(registry_path: str = ".") -> Dict[str, List[str]]:
     return changed_modules
 
 
-def detect_modified_versions(registry_path: str = ".") -> Dict[str, List[str]]:
+def resolve_default_base_ref() -> str:
+    """Resolve the default git ref to compare against."""
+    if os.environ.get('GITHUB_BASE_REF'):
+        return f"origin/{os.environ['GITHUB_BASE_REF']}"
+    return os.environ.get('DIFF_BASE_REF', 'origin/main')
+
+
+def git_ref_exists(ref: str) -> bool:
+    """Return whether a git ref or commit exists locally."""
+    result = subprocess.run(
+        ['git', 'rev-parse', '--verify', '--quiet', ref],
+        capture_output=True, text=True
+    )
+    return result.returncode == 0
+
+
+def detect_modified_versions(registry_path: str = ".", base_ref: Optional[str] = None) -> Dict[str, List[str]]:
     """
-    Detect modified versions by git diff against origin/main.
+    Detect modified versions by git diff against the base ref.
     Returns modules and their modified versions.
     """
     modules_path = Path(registry_path) / "modules"
     if not modules_path.exists():
         return {}
 
+    base_ref = base_ref or resolve_default_base_ref()
     changed_modules: Dict[str, List[str]] = {}
+
+    if not git_ref_exists(base_ref):
+        print(f"Warning: base ref '{base_ref}' was not found; modified versions may be missed", file=sys.stderr)
+        return changed_modules
 
     try:
         # Get changed files in modules/ directory
         result = subprocess.run(
-            ['git', 'diff', '--name-status', 'origin/main', '--', 'modules/'],
+            ['git', 'diff', '--name-status', base_ref, '--', 'modules/'],
             capture_output=True, text=True, check=True
         )
 
@@ -109,9 +130,8 @@ def detect_modified_versions(registry_path: str = ".") -> Dict[str, List[str]]:
                     if version not in changed_modules[module_name]:
                         changed_modules[module_name].append(version)
 
-    except subprocess.CalledProcessError:
-        # Git diff failed, return empty
-        pass
+    except subprocess.CalledProcessError as exc:
+        print(f"Warning: git diff against '{base_ref}' failed: {exc}", file=sys.stderr)
 
     # Sort versions
     for module_name in changed_modules:
@@ -159,11 +179,16 @@ def main():
     )
     parser.add_argument('--registry-path', default='.', help='Registry root path')
     parser.add_argument('--output', help='Output JSON file path')
+    parser.add_argument(
+        '--base-ref',
+        default=resolve_default_base_ref(),
+        help='Git ref or commit to compare modified versions against'
+    )
     args = parser.parse_args()
 
     # Detect both new versions (not in metadata) and modified versions (git diff)
     new_versions = detect_new_versions(args.registry_path)
-    modified_versions = detect_modified_versions(args.registry_path)
+    modified_versions = detect_modified_versions(args.registry_path, args.base_ref)
 
     # Merge new and modified versions
     all_changes: Dict[str, List[str]] = {}

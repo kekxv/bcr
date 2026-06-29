@@ -5,6 +5,10 @@ on:
     paths:
       - 'modules/**'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: read
@@ -31,17 +35,12 @@ jobs:
         id: diff
         run: |
           python .github/scripts/generate_diff.py \
+            --base-ref ${{ github.event.pull_request.base.sha }} \
             --output .github/diff-results.md
 
       - name: Output diff to Job Summary
         run: |
           if [ -f .github/diff-results.md ]; then
-            # Add header to job summary
-            echo "### 📋 Module Version Diff" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Comparing new/modified versions with their previous versions:" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            # Add diff content (GitHub renders markdown in job summary)
             cat .github/diff-results.md >> $GITHUB_STEP_SUMMARY
           else
             echo "### ℹ️ No Changes Detected" >> $GITHUB_STEP_SUMMARY

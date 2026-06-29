@@ -8,6 +8,7 @@ Also detects modified versions via git diff.
 import argparse
 import difflib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -117,16 +118,36 @@ def detect_new_versions(registry: RegistryClient) -> List[Tuple[str, Optional[st
     return changes
 
 
-def detect_modified_versions(registry: RegistryClient) -> List[Tuple[str, str]]:
+def resolve_default_base_ref() -> str:
+    """Resolve the default git ref to compare against."""
+    if os.environ.get('GITHUB_BASE_REF'):
+        return f"origin/{os.environ['GITHUB_BASE_REF']}"
+    return os.environ.get('DIFF_BASE_REF', 'origin/main')
+
+
+def git_ref_exists(ref: str) -> bool:
+    """Return whether a git ref or commit exists locally."""
+    result = subprocess.run(
+        ['git', 'rev-parse', '--verify', '--quiet', ref],
+        capture_output=True, text=True
+    )
+    return result.returncode == 0
+
+
+def detect_modified_versions(registry: RegistryClient, base_ref: str) -> List[Tuple[str, str]]:
     """
-    Detect modified versions by git diff against origin/main.
+    Detect modified versions by git diff against the base ref.
     Returns list of (module_name, version) tuples for modified versions.
     """
     changes: List[Tuple[str, str]] = []
 
+    if not git_ref_exists(base_ref):
+        print(f"Warning: base ref '{base_ref}' was not found; modified versions may be missed", file=sys.stderr)
+        return changes
+
     try:
         result = subprocess.run(
-            ['git', 'diff', '--name-status', 'origin/main', '--', 'modules/'],
+            ['git', 'diff', '--name-status', base_ref, '--', 'modules/'],
             capture_output=True, text=True, check=True
         )
 
@@ -155,8 +176,8 @@ def detect_modified_versions(registry: RegistryClient) -> List[Tuple[str, str]]:
                     if (module_name, version) not in changes:
                         changes.append((module_name, version))
 
-    except subprocess.CalledProcessError:
-        pass
+    except subprocess.CalledProcessError as exc:
+        print(f"Warning: git diff against '{base_ref}' failed: {exc}", file=sys.stderr)
 
     return changes
 
@@ -167,20 +188,37 @@ def read_file_content(path: Path) -> Optional[str]:
         return None
     try:
         return path.read_text()
-    except IOError:
+    except (IOError, UnicodeDecodeError):
+        print(f"Warning: skipping non-text or unreadable file: {path}", file=sys.stderr)
         return None
 
 
-def get_overlay_files(version_path: Path) -> List[str]:
-    """Get list of overlay files for a version."""
-    overlay_path = version_path / "overlay"
-    if not overlay_path.exists():
+def get_recursive_files(version_path: Path, subdir: str) -> List[str]:
+    """Get version-relative files under a subdirectory recursively."""
+    root = version_path / subdir
+    if not root.exists():
         return []
+    return sorted(
+        str(path.relative_to(version_path))
+        for path in root.rglob("*")
+        if path.is_file()
+    )
 
-    files = []
-    for item in overlay_path.iterdir():
-        if item.is_file():
-            files.append(f"overlay/{item.name}")
+
+def get_version_files(version_path: Path) -> List[str]:
+    """Get files that should be included in a version diff."""
+    ordered_files = ['source.json', 'MODULE.bazel', 'presubmit.yml', 'attestations.json']
+    files = [filename for filename in ordered_files if (version_path / filename).is_file()]
+    files.extend(get_recursive_files(version_path, 'overlay'))
+    files.extend(get_recursive_files(version_path, 'patches'))
+    return files
+
+
+def get_comparable_files(current_path: Path, previous_path: Optional[Path]) -> List[str]:
+    """Get version-relative files that should be compared between versions."""
+    files = set(get_version_files(current_path))
+    if previous_path:
+        files.update(get_version_files(previous_path))
     return sorted(files)
 
 
@@ -216,13 +254,12 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
         # Fallback: just get the last version
         prev_version = versions[-1] if versions else None
 
+    previous_path = registry.modules_path / module_name / prev_version if prev_version else None
+
     if prev_version:
         lines.append(f"*Comparing against previous version: `{prev_version}`*\n")
 
-    # Files to compare (including overlay files)
-    base_files = ['source.json', 'MODULE.bazel', 'presubmit.yml']
-    overlay_files = get_overlay_files(version_path)
-    files_to_diff = base_files + overlay_files
+    files_to_diff = get_comparable_files(version_path, previous_path)
 
     has_changes = False
     total_additions = 0
@@ -232,15 +269,29 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
     for filename in files_to_diff:
         new_content = read_file_content(version_path / filename)
 
-        if new_content is None:
-            continue
-
-        # Try to get previous version content
         if prev_version:
-            old_path = registry.modules_path / module_name / prev_version / filename
+            old_path = previous_path / filename
             old_content = read_file_content(old_path)
         else:
             old_content = None
+
+        if new_content is None and old_content is None:
+            continue
+
+        if new_content is None:
+            lines.append(f"### `{filename}` 🗑️ (deleted file)")
+            lines.append("")
+            ext = get_file_ext(filename)
+            lines.append(f"```{ext}")
+            lines.append(old_content.rstrip())
+            lines.append("```")
+            lines.append("")
+            has_changes = True
+
+            delete_count = len(old_content.splitlines())
+            file_stats.append((filename, 0, delete_count, delete_count))
+            total_deletions += delete_count
+            continue
 
         if old_content is None:
             lines.append(f"### `{filename}` 🆕 (new file)")
@@ -348,10 +399,7 @@ def diff_new_module(registry: RegistryClient, module_name: str) -> Optional[str]
         first_version = sorted(versions)[0]
         version_path = module_path / first_version
 
-        # Include overlay files
-        base_files = ['source.json', 'MODULE.bazel', 'presubmit.yml']
-        overlay_files = get_overlay_files(version_path)
-        all_files = base_files + overlay_files
+        all_files = get_version_files(version_path)
 
         for filename in all_files:
             content = read_file_content(version_path / filename)
@@ -372,13 +420,18 @@ def main():
         description='Generate diff between new/modified module versions and their previous versions'
     )
     parser.add_argument('--output', required=True, help='Output file path')
+    parser.add_argument(
+        '--base-ref',
+        default=resolve_default_base_ref(),
+        help='Git ref or commit to compare modified versions against'
+    )
     args = parser.parse_args()
 
     registry = RegistryClient('.')
 
     # Detect both new versions and modified versions
     new_versions = detect_new_versions(registry)
-    modified_versions = detect_modified_versions(registry)
+    modified_versions = detect_modified_versions(registry, args.base_ref)
 
     # Merge and deduplicate
     all_changes: List[Tuple[str, Optional[str]]] = list(new_versions)
@@ -407,7 +460,7 @@ def main():
     if sections:
         # Build summary table
         table_lines = []
-        table_lines.append("| 模块 | 版本 | 变更文件 |")
+        table_lines.append("| 模块 | 版本 | 对比文件 |")
         table_lines.append("| :--- | :--- | :--- |")
 
         for module_name, version in all_changes:
@@ -415,14 +468,21 @@ def main():
             changed_files = []
 
             if version_path:
-                # Check which files changed
-                for filename in ['source.json', 'MODULE.bazel', 'presubmit.yml']:
-                    if (version_path / filename).exists():
-                        changed_files.append(filename)
-
-                # Add overlay files
-                overlay_files = get_overlay_files(version_path)
-                changed_files.extend(overlay_files)
+                metadata = registry.get_metadata(module_name)
+                versions = metadata.get('versions', []) if metadata else []
+                prev_version = None
+                try:
+                    from registry import Version as V
+                    current_version = V.parse(version)
+                    for candidate in versions:
+                        if V.parse(candidate) < current_version:
+                            prev_version = candidate
+                        else:
+                            break
+                except Exception:
+                    prev_version = versions[-1] if versions else None
+                previous_path = registry.modules_path / module_name / prev_version if prev_version else None
+                changed_files = get_comparable_files(version_path, previous_path)
 
             files_str = ", ".join(changed_files) if changed_files else "全部"
             status = version if version else "🆕 新模块"
