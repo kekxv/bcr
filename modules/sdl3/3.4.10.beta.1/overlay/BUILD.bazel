@@ -128,6 +128,16 @@ config_setting(
     constraint_values = ["@platforms//os:windows"],
 )
 
+config_setting(
+    name = "windows_msvc",
+    constraint_values = [
+        "@platforms//os:windows",
+    ],
+    flag_values = {
+        "@bazel_tools//tools/cpp:compiler": "msvc-cl",
+    },
+)
+
 # Autoconf targets for dynamic feature detection (native builds only)
 # For cross-compilation, use the predefined config headers
 autoconf(
@@ -627,8 +637,8 @@ cc_library(
             "-framework AVFoundation",
             "-framework CoreMedia",
         ],
-        "@rules_cc//cc/compiler:mingw-gcc": WINDOWS_GNU_LINKOPTS,
-        ":windows": WINDOWS_MSVC_LINKOPTS,
+        ":windows_msvc": WINDOWS_MSVC_LINKOPTS,
+        ":windows": WINDOWS_GNU_LINKOPTS,
         "//conditions:default": [],
     }) + select({
         ":linux_opengl": ["-lGL"],
