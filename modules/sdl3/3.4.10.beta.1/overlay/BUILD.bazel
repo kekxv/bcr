@@ -827,7 +827,7 @@ alias(
 
 # Header libraries
 write_file(
-    name = "hello_sdl3",
+    name = "examples_hello_sdl3",
     out = "examples/bazel/hello_sdl3.c",
     content = [
         "#include <SDL3/SDL.h>",
@@ -844,7 +844,7 @@ write_file(
 
 cc_binary(
     name = "hello_sdl3",
-    srcs = [":hello_sdl3"],
+    srcs = [":examples_hello_sdl3"],
     deps = [":SDL3"],
 )
 
