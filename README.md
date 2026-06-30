@@ -1,6 +1,5 @@
 # Bazel Custom Registry
 
-[![Presubmit Checks](https://github.com/kekxv/bcr/actions/workflows/presubmit.yml/badge.svg)](https://github.com/kekxv/bcr/actions/workflows/presubmit.yml)
 [![Generate Module Diff](https://github.com/kekxv/bcr/actions/workflows/generate_diff.yml/badge.svg)](https://github.com/kekxv/bcr/actions/workflows/generate_diff.yml)
 [![Publish Registry](https://github.com/kekxv/bcr/actions/workflows/publish.yml/badge.svg)](https://github.com/kekxv/bcr/actions/workflows/publish.yml)
 
