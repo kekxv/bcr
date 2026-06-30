@@ -1,0 +1,9 @@
+{
+  "integrity": "sha256-tFbmqgVSLu2cv53sHpR7obpleP0JOGOR5YEzndq6pkE=",
+  "strip_prefix": "quickjs-0.11.0",
+  "url": "https://github.com/quickjs-ng/quickjs/archive/refs/tags/v0.11.0.tar.gz",
+  "overlay": {
+    "BUILD.bazel": "sha256-mj2+SLeceDzd26Q3uVY+cbgYsyD7L46yeBz2UyTowJc=",
+    "MODULE.bazel": "sha256-TOSA26s2TyOmZqWPzF0FYfzwR2lnzbnqDh8StecKY+s="
+  }
+}
