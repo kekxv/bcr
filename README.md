@@ -26,7 +26,8 @@ bcr-custom-registry/
 │   │   ├── presubmit.py         # Unified presubmit checks
 │   │   ├── publish.py           # Registry publishing
 │   │   ├── generate_diff.py     # Module diff generation
-│   │   └── create_module.py     # Quick module creation script
+│   │   ├── create_module.py     # Quick module creation script
+│   │   └── update_overlay_hashes.py # Overlay hash updater
 │   └── workflows/
 │       ├── presubmit.yml        # PR validation workflow
 │       ├── publish.yml          # Publish to GitHub Pages
@@ -78,6 +79,26 @@ The script will:
 - Generate `presubmit.yml` with default configuration
 - Support adding MODULE.bazel and patches interactively
 - Update `metadata.json` version list
+
+### Update Overlay Hashes
+
+Use `.github/scripts/update_overlay_hashes.py` to update `source.json["overlay"]` hashes after changing overlay files.
+
+Examples:
+
+```bash
+.github/scripts/update_overlay_hashes.py modules/libusb/1.0.29
+.github/scripts/update_overlay_hashes.py modules/libusb/1.0.29/source.json
+.github/scripts/update_overlay_hashes.py modules/libusb/1.0.29/overlay
+.github/scripts/update_overlay_hashes.py modules/libusb/1.0.29/overlay/BUILD.bazel
+```
+
+Behavior:
+
+- Passing a version directory, `source.json`, or the whole `overlay/` directory makes `source.json["overlay"]` exactly match the current overlay files.
+- Passing a single file or subdirectory under `overlay/` updates only the corresponding entries.
+- Hashes use the same format as the existing repository: `sha256-<base64>`.
+- The original `source.json` 2-space or 4-space indentation style is preserved.
 
 ### Adding a New Module (Manual)
 
@@ -252,6 +273,26 @@ python3 .github/scripts/create_module.py \
 - 生成默认配置的 `presubmit.yml`
 - 支持交互式添加 MODULE.bazel 和补丁
 - 自动更新 `metadata.json` 版本列表
+
+### 更新 overlay 哈希
+
+已新增脚本：`.github/scripts/update_overlay_hashes.py`。
+
+用法示例：
+
+```bash
+.github/scripts/update_overlay_hashes.py modules/libusb/1.0.29
+.github/scripts/update_overlay_hashes.py modules/libusb/1.0.29/source.json
+.github/scripts/update_overlay_hashes.py modules/libusb/1.0.29/overlay
+.github/scripts/update_overlay_hashes.py modules/libusb/1.0.29/overlay/BUILD.bazel
+```
+
+行为：
+
+- 传版本目录、`source.json` 或整个 `overlay/`：让 `source.json["overlay"]` 精确匹配当前 overlay 文件。
+- 传 `overlay` 下的单个文件或子目录：只更新对应条目。
+- hash 格式与现有仓库一致：`sha256-<base64>`。
+- 保留原 `source.json` 的 2/4 空格缩进风格。
 
 ### 手动添加模块
 
