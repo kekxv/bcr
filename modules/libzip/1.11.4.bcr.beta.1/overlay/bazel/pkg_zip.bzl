@@ -13,8 +13,17 @@ def _strip_prefix(path, prefix):
         fail("strip_prefix %r does not match input path %r" % (prefix, path))
     return path[len(normalized):]
 
+def _repo_relative_path(src):
+    path = src.short_path
+    if path.startswith("../"):
+        parts = path.split("/", 2)
+        if len(parts) < 3:
+            fail("invalid source path %r" % src.short_path)
+        path = parts[2]
+    return path
+
 def _zip_path(src, strip_prefix, package_dir):
-    path = _strip_prefix(src.short_path, strip_prefix)
+    path = _strip_prefix(_repo_relative_path(src), strip_prefix)
     package_dir = package_dir.strip("/")
     if package_dir:
         path = package_dir + "/" + path
