@@ -3,7 +3,7 @@
   "integrity": "sha256-guny8kIfnXwkZrvDFzzQlZWojqN9sNVZqdCi3GDcci4=",
   "strip_prefix": "libzip-1.11.4",
   "overlay": {
-    "BUILD.bazel": "sha256-kFoZTFZBTbZt1oRPBaqtrFaDVzZcQDjQ6N6tSivCsVA=",
+    "BUILD.bazel": "sha256-Ey12OFj/RmelF5zMfC58OiP5nOevF6O4rKqXGdQBIgg=",
     "MODULE.bazel": "sha256-lsl7bpDlLhSgcZr15QR1qdfMWov/NwWp4bLAszpMEiA=",
     "bazel/BUILD.bazel": "sha256-v0GzgTqHXLc+7z2e+EjuJb3U5A8Yoc2tZwO3SmzMyEo=",
     "bazel/pkg_zip.bzl": "sha256-oz9qkl/8MnLWyp+N9gc/AuLqYltE2TEsZgrjC0p8PEs=",

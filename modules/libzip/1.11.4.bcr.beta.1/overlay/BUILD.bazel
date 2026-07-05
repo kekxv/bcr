@@ -1,6 +1,6 @@
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
-load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//bazel:pkg_zip.bzl", "libzip_pkg_zip")
 load("//bazel:ssl_backend.bzl", "ssl_backend")
@@ -201,7 +201,6 @@ cc_library(
         "lib/zip_source_error.c",
         "lib/zip_source_file_common.c",
         "lib/zip_source_file_stdio.c",
-        "lib/zip_source_file_stdio_named.c",
         "lib/zip_source_free.c",
         "lib/zip_source_function.c",
         "lib/zip_source_get_dostime.c",
@@ -247,22 +246,26 @@ cc_library(
         ],
         "//conditions:default": [
             "lib/zip_random_unix.c",
+            "lib/zip_source_file_stdio_named.c",
         ],
-    }) + select({
-        "//:ssl_no_ssl": [],
-        "//:ssl_boringssl": [
-            "lib/zip_crypto_openssl.c",
-            "lib/zip_source_winzip_aes_decode.c",
-            "lib/zip_source_winzip_aes_encode.c",
-            "lib/zip_winzip_aes.c",
-        ],
-        "//:ssl_openssl": [
-            "lib/zip_crypto_openssl.c",
-            "lib/zip_source_winzip_aes_decode.c",
-            "lib/zip_source_winzip_aes_encode.c",
-            "lib/zip_winzip_aes.c",
-        ],
-    }, no_match_error = "Invalid //:ssl value. Use one of: no_ssl, boringssl, openssl.") + [
+    }) + select(
+        {
+            "//:ssl_no_ssl": [],
+            "//:ssl_boringssl": [
+                "lib/zip_crypto_openssl.c",
+                "lib/zip_source_winzip_aes_decode.c",
+                "lib/zip_source_winzip_aes_encode.c",
+                "lib/zip_winzip_aes.c",
+            ],
+            "//:ssl_openssl": [
+                "lib/zip_crypto_openssl.c",
+                "lib/zip_source_winzip_aes_decode.c",
+                "lib/zip_source_winzip_aes_encode.c",
+                "lib/zip_winzip_aes.c",
+            ],
+        },
+        no_match_error = "Invalid //:ssl value. Use one of: no_ssl, boringssl, openssl.",
+    ) + [
         "lib/zip_algorithm_zstd.c",
     ],
     hdrs = glob(["lib/*.h"]) + [
@@ -273,25 +276,31 @@ cc_library(
         "bazel",
         "lib",
     ],
-    local_defines = select({
-        "//:ssl_no_ssl": [],
-        "//:ssl_boringssl": [
-            "HAVE_CRYPTO",
-            "HAVE_OPENSSL",
-        ],
-        "//:ssl_openssl": [
-            "HAVE_CRYPTO",
-            "HAVE_OPENSSL",
-        ],
-    }, no_match_error = "Invalid //:ssl value. Use one of: no_ssl, boringssl, openssl."),
+    local_defines = select(
+        {
+            "//:ssl_no_ssl": [],
+            "//:ssl_boringssl": [
+                "HAVE_CRYPTO",
+                "HAVE_OPENSSL",
+            ],
+            "//:ssl_openssl": [
+                "HAVE_CRYPTO",
+                "HAVE_OPENSSL",
+            ],
+        },
+        no_match_error = "Invalid //:ssl value. Use one of: no_ssl, boringssl, openssl.",
+    ),
     deps = [
-        "@zlib//:zlib",
-        "@zstd//:zstd",
-    ] + select({
-        "//:ssl_no_ssl": [],
-        "//:ssl_boringssl": ["@boringssl//:crypto"],
-        "//:ssl_openssl": ["@openssl//:crypto"],
-    }, no_match_error = "Invalid //:ssl value. Use one of: no_ssl, boringssl, openssl."),
+        "@zlib",
+        "@zstd",
+    ] + select(
+        {
+            "//:ssl_no_ssl": [],
+            "//:ssl_boringssl": ["@boringssl//:crypto"],
+            "//:ssl_openssl": ["@openssl//:crypto"],
+        },
+        no_match_error = "Invalid //:ssl value. Use one of: no_ssl, boringssl, openssl.",
+    ),
 )
 
 cc_test(
@@ -320,7 +329,7 @@ libzip_pkg_zip(
     srcs = [
         "README.md",
     ],
-    deps = [":pkg_zip_smoke_dep"],
     out = "pkg_zip_smoke.zip",
     package_dir = "libzip-1.11.4",
+    deps = [":pkg_zip_smoke_dep"],
 )
