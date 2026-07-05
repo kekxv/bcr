@@ -1,6 +1,6 @@
 module(
     name = "libzip",
-    version = "1.11.4",
+    version = "1.11.4.bcr.beta.1",
 )
 
 bazel_dep(name = "platforms", version = "1.1.0")
