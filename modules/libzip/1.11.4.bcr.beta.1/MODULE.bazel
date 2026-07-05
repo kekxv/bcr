@@ -1,0 +1,4 @@
+module(
+    name = "libzip",
+    version = "1.11.4.bcr.beta.1",
+)
