@@ -1,361 +1,174 @@
 #!/usr/bin/env python3
-"""
-Generate bazel_registry.json and GitHub Pages index.
-"""
+"""Generate the Bazel registry index and its static GitHub Pages site."""
 
+from __future__ import annotations
+
+import html
 import json
 import os
+import re
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from registry import RegistryClient
 
 
-def get_recently_updated_modules(registry: RegistryClient, repo_name: str = "your-org/bcr", limit: int = 3) -> List[Dict[str, Any]]:
-    """Get recently updated modules based on git log."""
-    try:
-        # Get the last N commits that modified modules/
-        result = subprocess.run(
-            ['git', 'log', '-n', str(limit * 5), '--oneline', '--name-only', '--date=short', 'modules/'],
-            capture_output=True,
-            text=True,
-            cwd=os.getcwd()
+ROOT = Path(__file__).resolve().parents[2]
+TEMPLATE = Path(__file__).with_name("index.html.temp")
+
+
+def repository_parts(repo_name: str) -> tuple[str, str]:
+    """Return a safe owner/repository pair for GitHub Pages URLs."""
+    parts = [part for part in repo_name.strip("/").split("/") if part]
+    return (parts[0], parts[1]) if len(parts) == 2 else ("your-org", "bcr")
+
+
+def repository_name() -> str:
+    """Read the repository name from Actions or the local Git remote."""
+    if value := os.environ.get("GITHUB_REPOSITORY"):
+        return value
+    result = subprocess.run(
+        ["git", "config", "--get", "remote.origin.url"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    match = re.search(r"github\.com(?::|/)([^/]+)/([^/]+?)(?:\.git)?$", result.stdout.strip())
+    return f"{match.group(1)}/{match.group(2)}" if match else "your-org/bcr"
+
+
+def module_update_dates(limit: int = 200) -> dict[str, str]:
+    """Find the most recent commit date for each module."""
+    result = subprocess.run(
+        [
+            "git", "log", "-n", str(limit), "--format=@@%cs", "--name-only",
+            "--", "modules/",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return {}
+
+    dates: dict[str, str] = {}
+    current_date = ""
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.strip()
+        if line.startswith("@@"):
+            current_date = line[2:]
+            continue
+        parts = line.split("/")
+        if len(parts) >= 2 and parts[0] == "modules":
+            dates.setdefault(parts[1], current_date)
+    return dates
+
+
+def collect_modules(registry: RegistryClient) -> list[dict[str, Any]]:
+    """Collect the public module metadata used by the static site."""
+    update_dates = module_update_dates()
+    modules: list[dict[str, Any]] = []
+
+    for name in registry.get_all_modules():
+        metadata = registry.get_metadata(name)
+        if metadata is None:
+            continue
+        versions = metadata.get("versions", [])
+        modules.append(
+            {
+                "name": name,
+                "versions": versions,
+                "latest_version": versions[-1] if versions else "",
+                "homepage": metadata.get("homepage", ""),
+                "repository": metadata.get("repository", []),
+                "deprecated": metadata.get("deprecated") or None,
+                "yanked_versions": metadata.get("yanked_versions", {}),
+                "updated_at": update_dates.get(name, ""),
+            }
         )
 
-        if result.returncode != 0 or not result.stdout.strip():
-            # Fallback: return first N modules sorted alphabetically
-            modules = sorted(registry.get_all_modules())[:limit]
-            return [
-                {
-                    'name': m,
-                    'version': registry.get_metadata(m).get('versions', [''])[0] if registry.get_metadata(m) else '',
-                    'date': ''
-                }
-                for m in modules
-            ]
-
-        # Parse git log output to find module names
-        seen_modules = set()
-        recent_modules = []
-
-        lines = result.stdout.strip().split('\n')
-        current_date = ''
-
-        for line in lines:
-            if not line.startswith('modules/'):
-                # This is a commit line, extract date
-                parts = line.split()
-                if parts:
-                    current_date = ''  # We'll use relative date since oneline format doesn't include date
-                continue
-
-            # Extract module name from path like "modules/thorvg/1.0.1/source.json"
-            path_parts = line.strip().split('/')
-            if len(path_parts) >= 2:
-                module_name = path_parts[1]
-                if module_name not in seen_modules:
-                    seen_modules.add(module_name)
-                    metadata = registry.get_metadata(module_name)
-                    if metadata:
-                        versions = metadata.get('versions', [])
-                        recent_modules.append({
-                            'name': module_name,
-                            'version': versions[-1] if versions else '',
-                            'homepage': metadata.get('homepage', '')
-                        })
-
-                    if len(recent_modules) >= limit:
-                        break
-
-        return recent_modules
-
-    except Exception:
-        # Fallback: return first N modules
-        modules = sorted(registry.get_all_modules())[:limit]
-        return [
-            {
-                'name': m,
-                'version': registry.get_metadata(m).get('versions', [''])[0] if registry.get_metadata(m) else '',
-                'date': ''
-            }
-            for m in modules
-        ]
+    return sorted(modules, key=lambda module: module["name"].lower())
 
 
-def generate_recent_modules_html(recent_modules: List[Dict[str, Any]]) -> str:
-    """Generate HTML for recently updated modules list."""
-    if not recent_modules:
-        return '<span class="recent-item">No recent updates</span>'
+def generate_registry_index(registry: RegistryClient) -> dict[str, Any]:
+    """Generate the Bazel-compatible bazel_registry.json index."""
+    modules: dict[str, Any] = {}
+    for name in registry.get_all_modules():
+        metadata = registry.get_metadata(name)
+        if metadata is None:
+            continue
+        modules[name] = {
+            "versions": metadata.get("versions", []),
+            "yanked_versions": metadata.get("yanked_versions", {}),
+            "deprecated": metadata.get("deprecated") or None,
+        }
+    return {"mirrors": [], "modules": modules}
 
-    html = ''
-    for module in recent_modules:
-        dep_code = f"bazel_dep(name = '{module['name']}', version = '{module['version']}')"
-        html += f'''<span class="recent-item" data-dep="{dep_code}" title="Click to copy">
-                <span class="recent-item-name">{module['name']}</span>
-                <span class="recent-item-version">{module['version']}</span>
-            </span>'''
 
-    return html
+def generate_site_data(registry: RegistryClient, repo_name: str) -> dict[str, Any]:
+    """Generate the JSON document consumed by the static page."""
+    owner, repo = repository_parts(repo_name)
+    modules = collect_modules(registry)
+    recent = sorted(
+        (module for module in modules if module["updated_at"]),
+        key=lambda module: module["updated_at"],
+        reverse=True,
+    )[:4]
+    if not recent:
+        recent = modules[:4]
 
-
-def generate_registry_index(registry: RegistryClient) -> Dict[str, Any]:
-    """Generate the bazel_registry.json index."""
-    index = {
-        'mirrors': [],
-        'modules': {}
+    return {
+        "schema_version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "repository": repo_name,
+        "repository_url": f"https://github.com/{owner}/{repo}",
+        "registry_url": f"https://{owner}.github.io/{repo}",
+        "stats": {
+            "modules": len(modules),
+            "versions": sum(len(module["versions"]) for module in modules),
+            "deprecated": sum(bool(module["deprecated"]) for module in modules),
+        },
+        "recent_modules": [module["name"] for module in recent],
+        "modules": modules,
     }
 
-    for module_name in registry.get_all_modules():
-        metadata = registry.get_metadata(module_name)
-        if metadata is None:
-            continue
 
-        index['modules'][module_name] = {
-            'versions': metadata.get('versions', []),
-            'yanked_versions': metadata.get('yanked_versions', {}),
-            'deprecated': metadata.get('deprecated', None)
-        }
-
-    return index
+def generate_index_html(repo_name: str) -> str:
+    """Render the small static shell; module data stays in registry-data.json."""
+    if not TEMPLATE.exists():
+        raise FileNotFoundError(f"Page template not found: {TEMPLATE}")
+    return TEMPLATE.read_text(encoding="utf-8").replace(
+        "{{REPO_NAME}}", html.escape(repo_name)
+    )
 
 
-def generate_modules_html(registry: RegistryClient, repo_name: str = "your-org/bcr") -> str:
-    """Generate HTML for all modules."""
-    modules = []
-    for module_name in sorted(registry.get_all_modules()):
-        metadata = registry.get_metadata(module_name)
-        if metadata is None:
-            continue
-
-        versions = metadata.get('versions', [])
-        homepage = metadata.get('homepage', '')
-        deprecated = metadata.get('deprecated', '')
-
-        modules.append({
-            'name': module_name,
-            'versions': versions,
-            'homepage': homepage,
-            'deprecated': deprecated
-        })
-
-    if not modules:
-        return '''<div class="empty-state">
-            <div class="empty-state-icon">📦</div>
-            <h3>No modules available yet</h3>
-            <p>See README.md for instructions on adding modules.</p>
-        </div>'''
-
-    html = '<div class="modules-grid">\n'
-
-    for module in modules:
-        module_name = module['name']
-        versions = module['versions']
-
-        # Homepage HTML
-        homepage_html = ''
-        if module['homepage']:
-            homepage_html = f'''<div class="module-homepage">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-                    <a href="{module['homepage']}" target="_blank" rel="noopener">{module['homepage']}</a>
-                </div>'''
-
-        # Source code link (link to modules/ folder in GitHub repo)
-        source_link = f"https://github.com/{repo_name}/tree/main/modules/{module_name}"
-
-        # Generate versions HTML with expansion
-        versions_html = generate_versions_html(module_name, versions)
-
-        # Deprecated badge
-        deprecated_html = ''
-        if module['deprecated']:
-            deprecated_html = f'''<div class="deprecated-badge">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                    Deprecated: {module['deprecated']}
-                </div>'''
-
-        # Quick dep code (use latest version - last in array)
-        latest_version = versions[-1] if versions else '1.0.0'
-        quick_dep = f"bazel_dep(name = '{module_name}', version = '{latest_version}')"
-
-        # Build data attributes for search
-        data_name = module_name.lower()
-        data_versions = ' '.join(versions).lower()
-        data_homepage = module['homepage'].lower() if module['homepage'] else ''
-
-        html += f'''<div class="module-card" id="module-{module_name}" data-name="{data_name}" data-versions="{data_versions}" data-homepage="{data_homepage}">
-                <div class="module-header">
-                    <div class="module-title">
-                        <div class="module-icon">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
-                        </div>
-                        <div class="module-name">{module_name}</div>
-                    </div>
-                    <div class="module-actions">
-                        <a href="{source_link}" target="_blank" rel="noopener" class="action-btn">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
-                            Source
-                        </a>
-                    </div>
-                </div>
-                {homepage_html}
-                <div class="versions-section">
-                    {versions_html}
-                </div>
-                <div class="quick-dep">
-                    <code class="quick-dep-code">{quick_dep}</code>
-                    <button class="copy-btn" data-copy="{quick_dep}">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                        Copy
-                    </button>
-                </div>
-                {deprecated_html}
-            </div>\n'''
-
-    html += '</div>'
-    return html
+def write_json(path: Path, value: Any) -> None:
+    path.write_text(
+        json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
 
-def generate_versions_html(module_name: str, versions: List[str]) -> str:
-    """Generate versions HTML with expansion (show first 5, hide rest)."""
-    if not versions:
-        return '<div class="versions"></div>'
+def main() -> None:
+    registry = RegistryClient(str(ROOT))
+    repo_name = repository_name()
 
-    # Show first 5 versions, hide the rest
-    visible_count = 5
-    visible_versions = versions[:visible_count]
-    hidden_versions = versions[visible_count:]
+    registry_index = generate_registry_index(registry)
+    site_data = generate_site_data(registry, repo_name)
+    write_json(ROOT / "bazel_registry.json", registry_index)
+    write_json(ROOT / "registry-data.json", site_data)
+    (ROOT / "index.html").write_text(
+        generate_index_html(repo_name), encoding="utf-8"
+    )
 
-    def make_version_tag(version: str) -> str:
-        dep_code = f"bazel_dep(name = '{module_name}', version = '{version}')"
-        return f'<span class="version" data-dep="{dep_code}">{version}</span>'
-
-    visible_html = ''.join(make_version_tag(v) for v in visible_versions)
-
-    if hidden_versions:
-        hidden_html = ''.join(make_version_tag(v) for v in hidden_versions)
-        more_count = len(hidden_versions)
-        return f'''<div class="versions">
-                    {visible_html}
-                    <span class="version version-more">+{more_count} more</span>
-                </div>
-                <div class="versions versions-collapsed">
-                    {hidden_html}
-                </div>'''
-    else:
-        return f'<div class="versions">{visible_html}</div>'
+    print(
+        f"Generated bazel_registry.json, registry-data.json and index.html "
+        f"for {len(site_data['modules'])} modules"
+    )
 
 
-def generate_index_html(registry: RegistryClient, repo_name: str = "your-org/bcr") -> str:
-    """Generate the GitHub Pages index HTML from template."""
-    # Get template path
-    script_dir = Path(__file__).parent
-    template_path = script_dir / "index.html.temp"
-
-    # Fallback to inline template if file not found
-    if not template_path.exists():
-        print(f"Warning: Template file not found at {template_path}, using inline template")
-        return generate_index_html_inline(registry, repo_name)
-
-    # Read template
-    template = template_path.read_text()
-
-    # Calculate values
-    modules = []
-    for module_name in sorted(registry.get_all_modules()):
-        metadata = registry.get_metadata(module_name)
-        if metadata is None:
-            continue
-        modules.append({
-            'name': module_name,
-            'versions': metadata.get('versions', []),
-        })
-
-    module_count = len(modules)
-    version_count = sum(len(m['versions']) for m in modules)
-
-    # Generate registry URL
-    repo_owner, repo = repo_name.split('/') if '/' in repo_name else ('your-org', 'bcr')
-    registry_url = f"https://{repo_owner}.github.io/{repo}"
-
-    # Generate modules HTML
-    modules_html = generate_modules_html(registry, repo_name)
-
-    # Generate recently updated modules HTML
-    recent_modules = get_recently_updated_modules(registry, repo_name, limit=3)
-    recent_modules_html = generate_recent_modules_html(recent_modules)
-
-    # Replace placeholders
-    html = template
-    html = html.replace('{{REPO_NAME}}', repo_name)
-    html = html.replace('{{REGISTRY_URL}}', registry_url)
-    html = html.replace('{{MODULE_COUNT}}', str(module_count))
-    html = html.replace('{{VERSION_COUNT}}', str(version_count))
-    html = html.replace('{{RECENT_MODULES_HTML}}', recent_modules_html)
-    html = html.replace('{{MODULES_HTML}}', modules_html)
-
-    return html
-
-
-def generate_index_html_inline(registry: RegistryClient, repo_name: str = "your-org/bcr") -> str:
-    """Fallback inline HTML generation if template file is missing."""
-    # This is a simplified version for fallback purposes
-    modules_html = generate_modules_html(registry, repo_name)
-
-    modules = []
-    for module_name in sorted(registry.get_all_modules()):
-        metadata = registry.get_metadata(module_name)
-        if metadata is None:
-            continue
-        modules.append({'versions': metadata.get('versions', [])})
-
-    module_count = len(modules)
-    version_count = sum(len(m['versions']) for m in modules)
-    last_updated = get_last_updated_time()
-
-    repo_owner, repo = repo_name.split('/') if '/' in repo_name else ('your-org', 'bcr')
-    registry_url = f"https://{repo_owner}.github.io/{repo}"
-
-    return f'''<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>{repo_name} - Bazel Registry</title>
-    <style>
-        body {{ font-family: sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }}
-        .module {{ border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 8px; }}
-        .version {{ display: inline-block; background: #e3f2fd; padding: 2px 8px; margin: 2px; border-radius: 4px; }}
-    </style>
-</head>
-<body>
-    <h1>{repo_name}</h1>
-    <p>Registry URL: {registry_url}</p>
-    <p>Modules: {module_count} | Versions: {version_count} | Last Updated: {last_updated}</p>
-    {modules_html}
-</body>
-</html>'''
-
-
-def main():
-    registry = RegistryClient('.')
-
-    # Get repository name from environment or use default
-    repo_name = os.environ.get('GITHUB_REPOSITORY', 'your-org/bcr')
-
-    # Generate registry index
-    index = generate_registry_index(registry)
-    with open('bazel_registry.json', 'w') as f:
-        json.dump(index, f, indent=2)
-
-    print(f"Generated bazel_registry.json with {len(index['modules'])} modules")
-
-    # Generate index.html from template
-    html = generate_index_html(registry, repo_name)
-    with open('index.html', 'w') as f:
-        f.write(html)
-
-    print(f"Generated index.html for {repo_name}")
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

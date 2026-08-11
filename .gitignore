@@ -45,9 +45,10 @@ ENV/
 .bazelrc.user
 bazel-*
 
-# Generated registry files (built by GitHub Actions)
-bazel_registry.json
-index.html
+# Generated registry site (built and deployed by GitHub Actions)
+/bazel_registry.json
+/registry-data.json
+/index.html
 
 # OS
 Thumbs.db

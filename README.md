@@ -41,6 +41,7 @@ bcr-custom-registry/
 │           ├── MODULE.bazel     # Module definition
 │           └── presubmit.yml    # Presubmit configuration
 ├── bazel_registry.json          # Registry index (auto-generated)
+├── registry-data.json           # Static website data (auto-generated)
 ├── metadata.schema.json         # JSON Schema for metadata
 ├── index.html                   # GitHub Pages homepage
 └── README.md                    # This file
