@@ -50,6 +50,8 @@ def find_overlay_root(path: Path) -> Path:
 
 
 def resolve_paths(input_path: Path) -> Tuple[Path, Path, Path]:
+    if input_path.is_symlink():
+        raise ValueError(f"Symbolic links are not allowed: {input_path}")
     path = input_path.resolve()
 
     if path.is_file() and path.name == "source.json":
@@ -72,6 +74,8 @@ def iter_overlay_files(target: Path, overlay_root: Path) -> Iterable[Path]:
         target = overlay_root
 
     if target.is_file():
+        if target.is_symlink():
+            raise ValueError(f"Symbolic links are not allowed: {target}")
         yield target
         return
 
@@ -79,13 +83,17 @@ def iter_overlay_files(target: Path, overlay_root: Path) -> Iterable[Path]:
         raise ValueError(f"Path not found: {target}")
 
     for path in sorted(target.rglob("*")):
+        if path.is_symlink():
+            raise ValueError(f"Symbolic links are not allowed: {path}")
         if path.is_file():
             yield path
 
 
 def overlay_key(path: Path, overlay_root: Path) -> str:
     try:
-        return path.relative_to(overlay_root).as_posix()
+        resolved_root = overlay_root.resolve()
+        resolved_path = path.resolve()
+        return resolved_path.relative_to(resolved_root).as_posix()
     except ValueError as exc:
         raise ValueError(f"File is not under overlay directory: {path}") from exc
 

@@ -9,6 +9,7 @@ import argparse
 import difflib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -16,7 +17,19 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
-from registry import RegistryClient
+from registry import RegistryClient, resolve_within, validate_path_component
+
+
+def markdown_inline(value: Any) -> str:
+    """Escape untrusted text used in Markdown tables or inline code."""
+    return str(value).replace('\\', '\\\\').replace('`', '\\`').replace('|', '\\|').replace('\n', ' ')
+
+
+def code_block(content: str, language: str = '') -> List[str]:
+    """Return a fenced block whose delimiter cannot be closed by content."""
+    longest = max((len(match.group(0)) for match in re.finditer(r'`+', content)), default=0)
+    fence = '`' * max(3, longest + 1)
+    return [f"{fence}{language}", content.rstrip(), fence]
 
 
 def load_json_or_yaml(content: str, ext: str) -> Any:
@@ -170,6 +183,9 @@ def detect_modified_versions(registry: RegistryClient, base_ref: str) -> List[Tu
                 if version in ['metadata.json', 'README.md']:
                     continue
 
+                validate_path_component(module_name, 'module name')
+                validate_path_component(version, 'version')
+
                 # Check if this is a valid version
                 version_path = registry.modules_path / module_name / version
                 if version_path.is_dir() and (version_path / "source.json").exists():
@@ -184,6 +200,8 @@ def detect_modified_versions(registry: RegistryClient, base_ref: str) -> List[Tu
 
 def read_file_content(path: Path) -> Optional[str]:
     """Read file content if it exists."""
+    if path.is_symlink():
+        raise ValueError(f"Symbolic links are not allowed in module versions: {path}")
     if not path.exists():
         return None
     try:
@@ -195,14 +213,17 @@ def read_file_content(path: Path) -> Optional[str]:
 
 def get_recursive_files(version_path: Path, subdir: str) -> List[str]:
     """Get version-relative files under a subdirectory recursively."""
-    root = version_path / subdir
+    version_path = version_path.resolve()
+    root = resolve_within(version_path, subdir)
     if not root.exists():
         return []
-    return sorted(
-        str(path.relative_to(version_path))
-        for path in root.rglob("*")
-        if path.is_file()
-    )
+    files = []
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise ValueError(f"Symbolic links are not allowed in module versions: {path}")
+        if path.is_file():
+            files.append(str(path.relative_to(version_path)))
+    return sorted(files)
 
 
 def get_version_files(version_path: Path) -> List[str]:
@@ -234,7 +255,7 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
     """Generate diff for a specific new version against its previous version."""
     version_path = registry.modules_path / module_name / version
 
-    lines = [f"## `{module_name}@{version}`\n"]
+    lines = [f"## `{markdown_inline(module_name)}@{markdown_inline(version)}`\n"]
 
     # Get previous version from metadata
     metadata = registry.get_metadata(module_name)
@@ -257,7 +278,7 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
     previous_path = registry.modules_path / module_name / prev_version if prev_version else None
 
     if prev_version:
-        lines.append(f"*Comparing against previous version: `{prev_version}`*\n")
+        lines.append(f"*Comparing against previous version: `{markdown_inline(prev_version)}`*\n")
 
     files_to_diff = get_comparable_files(version_path, previous_path)
 
@@ -279,12 +300,10 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
             continue
 
         if new_content is None:
-            lines.append(f"### `{filename}` 🗑️ (deleted file)")
+            lines.append(f"### `{markdown_inline(filename)}` 🗑️ (deleted file)")
             lines.append("")
             ext = get_file_ext(filename)
-            lines.append(f"```{ext}")
-            lines.append(old_content.rstrip())
-            lines.append("```")
+            lines.extend(code_block(old_content, ext))
             lines.append("")
             has_changes = True
 
@@ -294,12 +313,10 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
             continue
 
         if old_content is None:
-            lines.append(f"### `{filename}` 🆕 (new file)")
+            lines.append(f"### `{markdown_inline(filename)}` 🆕 (new file)")
             lines.append("")
             ext = get_file_ext(filename)
-            lines.append(f"```{ext}")
-            lines.append(new_content.rstrip())
-            lines.append("```")
+            lines.extend(code_block(new_content, ext))
             lines.append("")
             has_changes = True
 
@@ -318,7 +335,7 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
 
             # Show file header with stats
             stats_str = f"+{additions}/-{deletions}"
-            lines.append(f"### `{filename}` ({stats_str})")
+            lines.append(f"### `{markdown_inline(filename)}` ({stats_str})")
             lines.append("")
 
             # Try structured diff for JSON/YAML
@@ -329,23 +346,17 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
                     new_data = load_json_or_yaml(new_content, ext)
                     changes_list = diff_dicts(old_data, new_data)
                     if changes_list:
-                        lines.append("```diff")
-                        lines.extend(changes_list)
-                        lines.append("```")
+                        lines.extend(code_block("\n".join(changes_list), "diff"))
                 except Exception:
                     # Fall back to unified diff
                     diff_text = generate_unified_diff(old_content, new_content, filename)
                     if diff_text:
-                        lines.append("```diff")
-                        lines.append(diff_text.rstrip())
-                        lines.append("```")
+                        lines.extend(code_block(diff_text, "diff"))
             else:
                 # Use unified diff for other files (like BUILD.bazel)
                 diff_text = generate_unified_diff(old_content, new_content, filename)
                 if diff_text:
-                    lines.append("```diff")
-                    lines.append(diff_text.rstrip())
-                    lines.append("```")
+                    lines.extend(code_block(diff_text, "diff"))
 
             lines.append("")
 
@@ -361,7 +372,7 @@ def diff_version(registry: RegistryClient, module_name: str, version: str) -> Op
         lines.append("| 文件 | 新增 | 删除 | 总计 |")
         lines.append("| :--- | :---: | :---: | :---: |")
         for fname, add, delete, total in file_stats:
-            lines.append(f"| `{fname}` | +{add} | -{delete} | {total} |")
+            lines.append(f"| `{markdown_inline(fname)}` | +{add} | -{delete} | {total} |")
         lines.append(f"| **总计** | **+{total_additions}** | **-{total_deletions}** | **{total_additions + total_deletions}** |")
         lines.append("")
 
@@ -373,16 +384,14 @@ def diff_new_module(registry: RegistryClient, module_name: str) -> Optional[str]
     module_path = registry.modules_path / module_name
     metadata_path = module_path / "metadata.json"
 
-    lines = [f"## `{module_name}` 🆕 (new module)\n"]
+    lines = [f"## `{markdown_inline(module_name)}` 🆕 (new module)\n"]
 
     # Show metadata
     metadata_content = read_file_content(metadata_path)
     if metadata_content:
         lines.append("### `metadata.json`")
         lines.append("")
-        lines.append("```json")
-        lines.append(metadata_content.rstrip())
-        lines.append("```")
+        lines.extend(code_block(metadata_content, "json"))
         lines.append("")
 
     # List all versions found
@@ -392,7 +401,7 @@ def diff_new_module(registry: RegistryClient, module_name: str) -> Optional[str]
             versions.append(item.name)
 
     if versions:
-        lines.append(f"### Versions: {', '.join(f'`{v}`' for v in sorted(versions))}")
+        lines.append(f"### Versions: {', '.join(f'`{markdown_inline(v)}`' for v in sorted(versions))}")
         lines.append("")
 
         # Show first version details
@@ -404,12 +413,12 @@ def diff_new_module(registry: RegistryClient, module_name: str) -> Optional[str]
         for filename in all_files:
             content = read_file_content(version_path / filename)
             if content:
-                lines.append(f"### `{first_version}/{filename}`")
+                lines.append(
+                    f"### `{markdown_inline(first_version)}/{markdown_inline(filename)}`"
+                )
                 lines.append("")
                 ext = get_file_ext(filename)
-                lines.append(f"```{ext}")
-                lines.append(content.rstrip())
-                lines.append("```")
+                lines.extend(code_block(content, ext))
                 lines.append("")
 
     return "\n".join(lines)
@@ -486,7 +495,10 @@ def main():
 
             files_str = ", ".join(changed_files) if changed_files else "全部"
             status = version if version else "🆕 新模块"
-            table_lines.append(f"| `{module_name}` | {status} | {files_str} |")
+            table_lines.append(
+                f"| `{markdown_inline(module_name)}` | {markdown_inline(status)} | "
+                f"{markdown_inline(files_str)} |"
+            )
 
         table_lines.append("")
         table_lines.append("---")

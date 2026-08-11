@@ -17,6 +17,9 @@ import ssl
 from pathlib import Path
 from typing import Optional, Tuple
 
+from presubmit import MAX_DOWNLOAD_BYTES, SafeRedirectHandler, validate_public_https_url
+from registry import validate_module_name, validate_version_name
+
 
 def calculate_sha256(data: bytes) -> str:
     """Calculate SHA256 hash and return base64 encoded."""
@@ -26,10 +29,26 @@ def calculate_sha256(data: bytes) -> str:
 def download_and_hash(url: str) -> Tuple[bytes, str]:
     """Download URL content and return (data, integrity)."""
     ssl_context = ssl.create_default_context()
+    validate_public_https_url(url)
     req = urllib.request.Request(url, headers={'User-Agent': 'BCR-Create/1.0'})
-
-    with urllib.request.urlopen(req, context=ssl_context, timeout=120) as response:
-        data = response.read()
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=ssl_context), SafeRedirectHandler()
+    )
+    with opener.open(req, timeout=120) as response:
+        content_length = response.headers.get('Content-Length')
+        if content_length and int(content_length) > MAX_DOWNLOAD_BYTES:
+            raise ValueError("Archive exceeds the maximum download size")
+        chunks = []
+        downloaded = 0
+        while True:
+            chunk = response.read(64 * 1024)
+            if not chunk:
+                break
+            downloaded += len(chunk)
+            if downloaded > MAX_DOWNLOAD_BYTES:
+                raise ValueError("Archive exceeds the maximum download size")
+            chunks.append(chunk)
+        data = b''.join(chunks)
 
     return data, calculate_sha256(data)
 
@@ -160,9 +179,16 @@ def download_module_bazel(url: str) -> Optional[str]:
     """Download MODULE.bazel from URL."""
     try:
         ssl_context = ssl.create_default_context()
+        validate_public_https_url(url)
         req = urllib.request.Request(url, headers={'User-Agent': 'BCR-Create/1.0'})
-        with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
-            return response.read().decode('utf-8')
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=ssl_context), SafeRedirectHandler()
+        )
+        with opener.open(req, timeout=30) as response:
+            data = response.read(1024 * 1024 + 1)
+            if len(data) > 1024 * 1024:
+                raise ValueError("MODULE.bazel exceeds the 1 MiB size limit")
+            return data.decode('utf-8')
     except Exception as e:
         print(f"  Warning: Could not download MODULE.bazel from URL: {e}")
         return None
@@ -237,6 +263,11 @@ def create_module_interactive():
     if not module_name:
         print("Error: Module name is required")
         sys.exit(1)
+    try:
+        validate_module_name(module_name)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
 
     # Check if module exists
     module_path = Path("modules") / module_name
@@ -258,6 +289,11 @@ def create_module_interactive():
     version = input("Version (e.g., '1.0.0'): ").strip()
     if not version:
         print("Error: Version is required")
+        sys.exit(1)
+    try:
+        validate_version_name(version)
+    except ValueError as exc:
+        print(f"Error: {exc}")
         sys.exit(1)
 
     # Check if version already exists
@@ -533,6 +569,12 @@ Examples:
     # Non-interactive mode (for CI/automation)
     module_name = args.name
     version = args.version
+    try:
+        validate_module_name(module_name)
+        validate_version_name(version)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
     module_path = Path("modules") / module_name
     is_new_module = not module_path.exists()
 

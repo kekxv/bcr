@@ -6,20 +6,55 @@ Runs all validations in a single job to conserve GitHub Actions minutes.
 
 import argparse
 import hashlib
+import html
 import json
+import ipaddress
 import os
 import re
+import socket
 import subprocess
 import sys
 import tarfile
 import tempfile
 import zipfile
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from registry import RegistryClient, Version
+from registry import RegistryClient, Version, resolve_within, validate_path_component
+
+
+MAX_DOWNLOAD_BYTES = 1024 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 200_000
+
+
+def validate_public_https_url(url: str) -> None:
+    """Allow HTTPS downloads only to publicly routed addresses."""
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme.lower() != 'https' or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Source URL must be an HTTPS URL without embedded credentials")
+    try:
+        addresses = socket.getaddrinfo(parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError(f"Could not resolve source host: {parsed.hostname}") from exc
+    for address in addresses:
+        ip = ipaddress.ip_address(address[4][0])
+        if not ip.is_global:
+            raise ValueError(f"Source host resolves to a non-public address: {ip}")
+
+
+class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        validate_public_https_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def markdown_text(value: Any) -> str:
+    """Render untrusted values as inert Markdown text."""
+    return html.escape(str(value), quote=False).replace('\\', '\\\\').replace('|', '\\|').replace('\n', ' ')
 
 # Valid checks that can be skipped
 VALID_SKIP_CHECKS = {
@@ -288,21 +323,33 @@ class PresubmitChecker:
 
         # Download and verify
         try:
-            import urllib.request
             import ssl
 
             # Create SSL context that allows us to download
             ssl_context = ssl.create_default_context()
 
+            validate_public_https_url(url)
+            opener = urllib.request.build_opener(
+                urllib.request.HTTPSHandler(context=ssl_context),
+                SafeRedirectHandler(),
+            )
+            tmp_path = None
             with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                tmp_path = tmp.name
                 req = urllib.request.Request(url, headers={'User-Agent': 'BCR-Presubmit/1.0'})
-                with urllib.request.urlopen(req, context=ssl_context, timeout=60) as response:
+                with opener.open(req, timeout=60) as response:
+                    content_length = response.headers.get('Content-Length')
+                    if content_length and int(content_length) > MAX_DOWNLOAD_BYTES:
+                        raise ValueError("Source archive exceeds the maximum download size")
+                    downloaded = 0
                     while True:
-                        chunk = response.read(8192)
+                        chunk = response.read(64 * 1024)
                         if not chunk:
                             break
+                        downloaded += len(chunk)
+                        if downloaded > MAX_DOWNLOAD_BYTES:
+                            raise ValueError("Source archive exceeds the maximum download size")
                         tmp.write(chunk)
-                tmp_path = tmp.name
 
             # Calculate hash
             sha256 = hashlib.sha256()
@@ -330,17 +377,25 @@ class PresubmitChecker:
                 strip_prefix_result = self._verify_strip_prefix(tmp_path, url, strip_prefix)
                 results.append(strip_prefix_result)
 
-            os.unlink(tmp_path)
-
         except Exception as e:
             results.append(CheckResult("source/download", False, f"Failed to download: {e}"))
+        finally:
+            if 'tmp_path' in locals() and tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except FileNotFoundError:
+                    pass
 
         # Verify overlay file integrity
         overlay = source.get('overlay', {})
         if overlay:
             overlay_path = self.registry.modules_path / module_name / version / "overlay"
             for overlay_file, expected_integrity in overlay.items():
-                file_path = overlay_path / overlay_file
+                try:
+                    file_path = resolve_within(overlay_path, overlay_file)
+                except ValueError as exc:
+                    results.append(CheckResult(f"overlay/{overlay_file}", False, str(exc)))
+                    continue
                 if not file_path.exists():
                     results.append(CheckResult(
                         f"overlay/{overlay_file}",
@@ -378,7 +433,11 @@ class PresubmitChecker:
         if patches:
             patches_path = self.registry.modules_path / module_name / version / "patches"
             for patch_file, expected_integrity in patches.items():
-                file_path = patches_path / patch_file
+                try:
+                    file_path = resolve_within(patches_path, patch_file)
+                except ValueError as exc:
+                    results.append(CheckResult(f"patch/{patch_file}", False, str(exc)))
+                    continue
                 if not file_path.exists():
                     results.append(CheckResult(
                         f"patch/{patch_file}",
@@ -430,6 +489,9 @@ class PresubmitChecker:
                 file_list = extractor.namelist()
             else:
                 return CheckResult("source/strip_prefix", True, f"Unknown archive type, cannot verify strip_prefix")
+
+            if len(file_list) > MAX_ARCHIVE_MEMBERS:
+                return CheckResult("source/strip_prefix", False, "Archive contains too many members")
 
             # Get the top-level directory of each file
             top_dirs = set()
@@ -658,7 +720,7 @@ class PresubmitChecker:
         for module_name, versions in self.results.items():
             for version, results in versions.items():
                 version_str = f"@{version}" if version else ""
-                module_header = f"**{module_name}{version_str}**"
+                module_header = f"**{markdown_text(module_name)}{markdown_text(version_str)}**"
 
                 for result in results:
                     total_checks += 1
@@ -668,8 +730,8 @@ class PresubmitChecker:
                     else:
                         passed_checks += 1
 
-                    check_name = result.name
-                    message = result.message if result.message else ""
+                    check_name = markdown_text(result.name)
+                    message = markdown_text(result.message) if result.message else ""
                     lines.append(f"| {module_header}: {check_name} | {status} {message} |\n")
 
         # Summary section
@@ -684,9 +746,12 @@ class PresubmitChecker:
             lines.append("\n### ❌ 失败的检查\n\n")
             for module_name, version, result in failed_checks:
                 version_str = f"@{version}" if version else ""
-                lines.append(f"- `{module_name}{version_str}`: **{result.name}**")
+                lines.append(
+                    f"- `{markdown_text(module_name)}{markdown_text(version_str)}`: "
+                    f"**{markdown_text(result.name)}**"
+                )
                 if result.message:
-                    lines.append(f"  - {result.message}")
+                    lines.append(f"  - {markdown_text(result.message)}")
                 if result.fixable:
                     lines.append(f"  - 💡 可通过 `--fix` 参数自动修复")
 
@@ -715,6 +780,14 @@ class PresubmitChecker:
         exit_code = 0
 
         for module_name, version, change_type in changes:
+            try:
+                validate_path_component(module_name, 'module name')
+                if version:
+                    validate_path_component(version, 'version')
+            except ValueError as exc:
+                print(f"  {Colors.RED}✗{Colors.RESET} unsafe changed path: {exc}")
+                exit_code = 1
+                continue
             version_str = f"@{version}" if version else ""
             change_indicator = "[NEW]" if change_type == 'new' else "[MODIFIED]" if change_type == 'modified' else "[DELETED]"
             print(f"{Colors.BLUE}Checking {module_name}{version_str} {change_indicator}...{Colors.RESET}")

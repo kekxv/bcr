@@ -13,6 +13,8 @@ from typing import Dict, List, Set
 
 import yaml
 
+from registry import resolve_within, validate_path_component
+
 # BCR platform to GitHub Actions runner mapping
 PLATFORM_TO_RUNNER = {
     # Debian variants -> ubuntu-latest
@@ -79,9 +81,12 @@ def get_required_runners(modules_path: Path, changed_modules: Dict[str, List[str
     runners: Set[str] = set()
     
     for module_name, versions in changed_modules.items():
+        validate_path_component(module_name, 'module name')
         for version in versions:
-            version_path = modules_path / module_name / version
-            presubmit_path = version_path / 'presubmit.yml'
+            validate_path_component(version, 'version')
+            presubmit_path = resolve_within(
+                modules_path, Path(module_name) / version / 'presubmit.yml'
+            )
             
             platforms = get_platforms_from_presubmit(presubmit_path)
             

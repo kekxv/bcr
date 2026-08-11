@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+from registry import validate_path_component
+
 
 def detect_new_versions(registry_path: str = ".") -> Dict[str, List[str]]:
     """
@@ -26,10 +28,13 @@ def detect_new_versions(registry_path: str = ".") -> Dict[str, List[str]]:
     changed_modules: Dict[str, List[str]] = {}
 
     for module_dir in modules_path.iterdir():
+        if module_dir.is_symlink():
+            raise ValueError(f"Symbolic links are not allowed below modules/: {module_dir}")
         if not module_dir.is_dir():
             continue
 
         module_name = module_dir.name
+        validate_path_component(module_name, 'module name')
         metadata_path = module_dir / "metadata.json"
 
         # Get existing versions from metadata
@@ -45,8 +50,11 @@ def detect_new_versions(registry_path: str = ".") -> Dict[str, List[str]]:
         # Find new versions in filesystem
         new_versions: List[str] = []
         for item in module_dir.iterdir():
+            if item.is_symlink():
+                raise ValueError(f"Symbolic links are not allowed below modules/: {item}")
             if item.is_dir() and (item / "source.json").exists():
                 version = item.name
+                validate_path_component(version, 'version')
                 if version not in existing_versions:
                     new_versions.append(version)
 
@@ -121,6 +129,9 @@ def detect_modified_versions(registry_path: str = ".", base_ref: Optional[str] =
                 # Skip if not a version directory (metadata.json, README.md, etc.)
                 if version in ['metadata.json', 'README.md']:
                     continue
+
+                validate_path_component(module_name, 'module name')
+                validate_path_component(version, 'version')
 
                 # Check if this is a valid version (has source.json)
                 version_path = modules_path / module_name / version

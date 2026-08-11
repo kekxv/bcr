@@ -10,11 +10,46 @@ import yaml
 import subprocess
 import sys
 import tempfile
+import shutil
+import re
 from pathlib import Path
+
+from registry import resolve_within, validate_path_component
 
 
 MODULE_BAZEL_DEPS_KEYS = ('module_bazel_deps', 'extra_bazel_deps')
 MODULE_BAZEL_EXTRA_KEYS = ('module_bazel_extra', 'module_bazel_append', 'extra_module_bazel')
+DENIED_BAZEL_FLAG_PREFIXES = (
+  '--action_env', '--repo_env', '--host_action_env', '--remote_header',
+  '--remote_cache_header', '--remote_exec_header', '--credential_helper',
+  '--bazelrc', '--config',
+)
+
+
+def validate_bazel_version(value: str) -> str:
+  value = str(value)
+  if not re.fullmatch(r'[0-9]+(?:\.[0-9x]+){0,2}', value):
+    raise ValueError(f"Unsupported Bazel version: {value!r}")
+  return value
+
+
+def validate_bazel_flags(flags, field_name: str) -> list[str]:
+  if flags is None:
+    return []
+  if not isinstance(flags, list) or not all(isinstance(flag, str) for flag in flags):
+    raise ValueError(f"{field_name} must be a list of strings")
+  for flag in flags:
+    if not flag.startswith('--') or flag.startswith(DENIED_BAZEL_FLAG_PREFIXES):
+      raise ValueError(f"Disallowed {field_name} entry: {flag!r}")
+  return flags
+
+
+def validate_target(target: str) -> str:
+  if not isinstance(target, str) or not (target.startswith('//') or target.startswith('@')):
+    raise ValueError(f"Invalid Bazel target: {target!r}")
+  if any(char in target for char in ('\n', '\r', '\x00')):
+    raise ValueError(f"Invalid Bazel target: {target!r}")
+  return target
 
 
 def parse_args():
@@ -135,6 +170,8 @@ def collect_module_bazel_extra(config: dict, task_config: dict) -> str:
 
 def create_test_module_content(module_name: str, version: str, config: dict, task_config: dict) -> str:
   """Create MODULE.bazel content for the temporary test workspace."""
+  validate_path_component(module_name, 'module name')
+  validate_path_component(version, 'version')
   lines = [
     'module(name = "test_workspace", version = "1.0.0")',
     '',
@@ -198,13 +235,26 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
   passed = []
 
   for module_name, versions in all_changes.items():
+    try:
+      validate_path_component(module_name, 'module name')
+    except ValueError as e:
+      print(f"Invalid changes.json entry: {e}")
+      failed.append(f"invalid module name: {module_name!r}")
+      continue
     for version in versions:
       print(f"\n{'='*60}")
       print(f"Testing {module_name}@{version} on platform: {platform}")
       print(f"Registry path: {registry_path}")
       print('='*60)
 
-      presubmit_path = registry_path / 'modules' / module_name / version / 'presubmit.yml'
+      try:
+        validate_path_component(version, 'version')
+        presubmit_path = resolve_within(
+          registry_path / 'modules', Path(module_name) / version / 'presubmit.yml')
+      except ValueError as e:
+        print(f"Invalid changes.json entry: {e}")
+        failed.append(f"{module_name}@{version}: invalid path")
+        continue
 
       if not presubmit_path.exists():
         print(f"[SKIP] presubmit.yml not found for {module_name}@{version}")
@@ -231,6 +281,12 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
       tasks = config.get('tasks', {})
 
       for bazel_ver in bazel_versions:
+        try:
+          bazel_ver = validate_bazel_version(bazel_ver)
+        except ValueError as e:
+          print(f"Invalid test configuration: {e}")
+          failed.append(f"{module_name}@{version}: invalid Bazel version")
+          continue
         print(f"\n>>> Testing with Bazel version: {bazel_ver} <<<")
 
         # Shutdown any existing Bazel server to avoid conflicts
@@ -245,11 +301,22 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
           test_targets = task_config.get('test_targets', [])
 
           # 支持 BCR 规范的 build_flags, test_flags，兼容 build_args/test_args 写法
-          build_flags = task_config.get('build_flags', task_config.get('build_args', []))
-          test_flags = task_config.get('test_flags', task_config.get('test_args', []))
+          try:
+            build_flags = validate_bazel_flags(
+              task_config.get('build_flags', task_config.get('build_args', [])), 'build_flags')
+            test_flags = validate_bazel_flags(
+              task_config.get('test_flags', task_config.get('test_args', [])), 'test_flags')
+          except ValueError as e:
+            print(f"  Invalid test configuration: {e}")
+            failed.append(f"{module_name}@{version}: {task_name} (invalid flags)")
+            continue
 
           # 支持自定义的 bazelrc
           bazelrc_content = task_config.get('bazelrc', '')
+          if bazelrc_content:
+            print("  Invalid test configuration: custom bazelrc content is not allowed in CI")
+            failed.append(f"{module_name}@{version}: {task_name} (custom bazelrc is not allowed)")
+            continue
 
           if not build_targets and not test_targets:
             print(f"  No targets defined for task: {task_name}")
@@ -258,9 +325,8 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
           print(f"\n  Task: {task_name}")
 
           # Create temporary test workspace (加上 task_name 防止不同 task 的 .bazelrc 互相污染)
-          temp_base = Path(tempfile.gettempdir()) / 'bcr_test'
-          test_dir = temp_base / f"{module_name}_{version}_{task_name}"
-          test_dir.mkdir(parents=True, exist_ok=True)
+          # Never derive a filesystem path from PR-controlled module/task names.
+          test_dir = Path(tempfile.mkdtemp(prefix='bcr_test_'))
 
           # Create MODULE.bazel
           try:
@@ -268,6 +334,7 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
           except ValueError as e:
             print(f"    Invalid MODULE.bazel test configuration: {e}")
             failed.append(f"{module_name}@{version}: {task_name} (invalid MODULE.bazel test configuration)")
+            shutil.rmtree(test_dir, ignore_errors=True)
             continue
           (test_dir / "MODULE.bazel").write_text(module_content)
           print(f"    Created MODULE.bazel with {len(module_content.splitlines())} lines")
@@ -287,7 +354,12 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
           # Run build targets
           for target in build_targets:
             # Replace ${{ }} variables
-            actual_target = target.replace('${{ module }}', module_name)
+            try:
+              actual_target = validate_target(target.replace('${{ module }}', module_name))
+            except (AttributeError, ValueError) as e:
+              print(f"    Invalid target: {e}")
+              failed.append(f"{module_name}@{version}: invalid build target")
+              continue
 
             print(f"\n    Building: {target}")
 
@@ -317,7 +389,12 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
           # Run test targets
           for target in test_targets:
             # Replace ${{ }} variables
-            actual_target = target.replace('${{ module }}', module_name)
+            try:
+              actual_target = validate_target(target.replace('${{ module }}', module_name))
+            except (AttributeError, ValueError) as e:
+              print(f"    Invalid target: {e}")
+              failed.append(f"{module_name}@{version}: invalid test target")
+              continue
 
             print(f"\n    Testing: {target}")
 
@@ -346,6 +423,8 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
             else:
               print(f"    SUCCESS")
               passed.append(f"{module_name}@{version}: {target} (Bazel {bazel_ver})")
+
+          shutil.rmtree(test_dir, ignore_errors=True)
 
   # Summary
   print(f"\n{'='*60}")

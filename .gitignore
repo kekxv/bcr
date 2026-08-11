@@ -18,6 +18,17 @@ env/
 ENV/
 .venv/
 
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+
 # IDE
 .vscode/
 .idea/
@@ -34,6 +45,10 @@ ENV/
 # GitHub Actions temporary outputs
 .github/presubmit-results.md
 .github/diff-results.md
+changes.json
+platforms.json
+presubmit-output.log
+/_site/
 
 # Downloaded archives during testing
 *.tar.gz

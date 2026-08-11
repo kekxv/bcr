@@ -13,6 +13,8 @@ from typing import Dict, List
 
 import yaml
 
+from registry import resolve_within, validate_path_component
+
 # Platform to (OS, arch) mapping
 PLATFORM_TO_OS_ARCH = {
     # Debian variants (x86_64)
@@ -77,8 +79,12 @@ def is_platform_needed(platform: str, modules_path: Path, all_changes: Dict[str,
     current_os, current_arch = get_platform_os_arch(platform)
     
     for module_name, versions in all_changes.items():
+        validate_path_component(module_name, 'module name')
         for version in versions:
-            presubmit_path = modules_path / module_name / version / 'presubmit.yml'
+            validate_path_component(version, 'version')
+            presubmit_path = resolve_within(
+                modules_path, Path(module_name) / version / 'presubmit.yml'
+            )
             presubmit_platforms = get_presubmit_platforms(presubmit_path)
             
             # Check if any presubmit platform matches current OS and arch

@@ -9,6 +9,56 @@ from dataclasses import dataclass, field
 import re
 
 
+MODULE_NAME_RE = re.compile(r"^[a-z][a-z0-9._-]*$")
+# Registry versions include semver plus historical BCR suffix variants.
+VERSION_NAME_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._+-]*$")
+
+
+def validate_path_component(value: str, kind: str = "path component") -> str:
+    """Reject values that could add or escape filesystem path components."""
+    if not isinstance(value, str) or not value or value in {'.', '..'}:
+        raise ValueError(f"Invalid {kind}: {value!r}")
+    if '/' in value or '\\' in value or '\x00' in value:
+        raise ValueError(f"Invalid {kind}: {value!r}")
+    return value
+
+
+def validate_module_name(value: str) -> str:
+    if not MODULE_NAME_RE.fullmatch(value):
+        raise ValueError(f"Invalid module name: {value!r}")
+    return value
+
+
+def validate_version_name(value: str) -> str:
+    validate_path_component(value, "version")
+    if not VERSION_NAME_RE.fullmatch(value):
+        raise ValueError(f"Invalid version: {value!r}")
+    return value
+
+
+def resolve_within(root: Path, relative_path: str | Path, *, reject_symlinks: bool = True) -> Path:
+    """Resolve a relative path and guarantee that it stays below root."""
+    root = root.resolve()
+    relative = Path(relative_path)
+    if relative.is_absolute() or any(part in {'', '.', '..'} for part in relative.parts):
+        raise ValueError(f"Unsafe relative path: {relative_path!r}")
+    if '\\' in str(relative_path) or '\x00' in str(relative_path):
+        raise ValueError(f"Unsafe relative path: {relative_path!r}")
+
+    candidate = root.joinpath(*relative.parts)
+    if reject_symlinks:
+        current = root
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                raise ValueError(f"Symbolic links are not allowed: {current}")
+
+    resolved = candidate.resolve(strict=False)
+    if not resolved.is_relative_to(root):
+        raise ValueError(f"Path escapes root directory: {relative_path!r}")
+    return resolved
+
+
 @dataclass
 class Version:
     """Semantic version representation for comparison."""
@@ -109,7 +159,8 @@ class RegistryClient:
 
     def get_metadata(self, module_name: str) -> Optional[Dict[str, Any]]:
         """Get the metadata for a module."""
-        metadata_path = self.modules_path / module_name / "metadata.json"
+        validate_path_component(module_name, "module name")
+        metadata_path = resolve_within(self.modules_path, Path(module_name) / "metadata.json")
         if not metadata_path.exists():
             return None
 
@@ -118,7 +169,9 @@ class RegistryClient:
 
     def get_source(self, module_name: str, version: str) -> Optional[Dict[str, Any]]:
         """Get the source information for a specific module version."""
-        source_path = self.modules_path / module_name / version / "source.json"
+        validate_path_component(module_name, "module name")
+        validate_path_component(version, "version")
+        source_path = resolve_within(self.modules_path, Path(module_name) / version / "source.json")
         if not source_path.exists():
             return None
 
@@ -127,10 +180,12 @@ class RegistryClient:
 
     def get_presubmit(self, module_name: str, version: str) -> Optional[Dict[str, Any]]:
         """Get the presubmit configuration for a specific module version."""
-        presubmit_path = self.modules_path / module_name / version / "presubmit.yml"
+        validate_path_component(module_name, "module name")
+        validate_path_component(version, "version")
+        presubmit_path = resolve_within(self.modules_path, Path(module_name) / version / "presubmit.yml")
         if not presubmit_path.exists():
             # Try module-level presubmit
-            presubmit_path = self.modules_path / module_name / "presubmit.yml"
+            presubmit_path = resolve_within(self.modules_path, Path(module_name) / "presubmit.yml")
             if not presubmit_path.exists():
                 return None
 
@@ -140,7 +195,9 @@ class RegistryClient:
 
     def get_module_dot_bazel(self, module_name: str, version: str) -> Optional[str]:
         """Get the MODULE.bazel content for a specific module version."""
-        module_path = self.modules_path / module_name / version / "MODULE.bazel"
+        validate_path_component(module_name, "module name")
+        validate_path_component(version, "version")
+        module_path = resolve_within(self.modules_path, Path(module_name) / version / "MODULE.bazel")
         if not module_path.exists():
             return None
 
@@ -212,7 +269,9 @@ class RegistryClient:
 
     def get_attestations(self, module_name: str, version: str) -> Optional[Dict[str, Any]]:
         """Get attestations for a specific module version."""
-        attestations_path = self.modules_path / module_name / version / "attestations.json"
+        validate_path_component(module_name, "module name")
+        validate_path_component(version, "version")
+        attestations_path = resolve_within(self.modules_path, Path(module_name) / version / "attestations.json")
         if not attestations_path.exists():
             return None
 
