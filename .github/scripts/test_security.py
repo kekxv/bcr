@@ -121,6 +121,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('persist-credentials: false', bazel_job)
         self.assertNotIn('checks: write', bazel_job)
 
+    def test_presubmit_trigger_label_is_persistent(self):
+        workflow = (SCRIPT_DIR.parent / 'workflows' / 'presubmit.yml').read_text()
+        authorize_step = workflow.split('id: authorize-run', 1)[1].split(
+            '- name: Detect changed modules', 1)[0]
+        self.assertIn('context.payload.pull_request?.labels', authorize_step)
+        self.assertNotIn("context.payload.action === 'labeled'", authorize_step)
+
 
 if __name__ == '__main__':
     unittest.main()

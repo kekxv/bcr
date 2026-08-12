@@ -49,30 +49,19 @@ jobs:
         run: |
           pip install --requirement .github/requirements-ci.txt
 
-      - name: Authorize Bazel run request
+      - name: Check Bazel run label
         id: authorize-run
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
-            let authorized = false;
-            if (context.payload.action === 'labeled' &&
-                context.payload.label?.name === process.env.TRIGGER_LABEL) {
-              const actor = context.payload.sender.login;
-              try {
-                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  username: actor,
-                });
-                authorized = ['admin', 'maintain', 'write'].includes(data.permission);
-              } catch (error) {
-                if (error.status !== 404) throw error;
-              }
-              if (!authorized) {
-                core.warning(`${actor} is not allowed to trigger Bazel tests`);
-              }
-            }
-            core.setOutput('authorized', authorized ? 'true' : 'false');
+            // Treat the label as a persistent opt-in. This allows later
+            // synchronize/reopened events to run tests without requiring the
+            // label to be removed and added again.
+            const labels = context.payload.pull_request?.labels ?? [];
+            const hasTriggerLabel = labels.some(
+              label => label.name === process.env.TRIGGER_LABEL
+            );
+            core.setOutput('authorized', hasTriggerLabel ? 'true' : 'false');
 
       - name: Detect changed modules
         id: detect
@@ -305,7 +294,7 @@ jobs:
               return;
             }
 
-            // A run is authorized only for the current labeled event and actor.
+            // The trigger label is a persistent opt-in for this PR.
             const runAuthorized = '${{ needs.validate.outputs.run_authorized }}' === 'true';
             if (!runAuthorized) {
               // No trigger label - mark as waiting
