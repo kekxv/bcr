@@ -111,6 +111,21 @@ class CheckResult:
         return f"{status} {self.name}: {self.message}"
 
 
+def tasks_define_platforms(tasks: Any) -> bool:
+    """Return whether every task has a non-empty task-level platforms list."""
+    return (
+        isinstance(tasks, dict)
+        and bool(tasks)
+        and all(
+            isinstance(task, dict)
+            and isinstance(task.get('platforms'), list)
+            and bool(task['platforms'])
+            and all(isinstance(platform, str) and platform for platform in task['platforms'])
+            for task in tasks.values()
+        )
+    )
+
+
 class PresubmitChecker:
     """Main presubmit checker class."""
 
@@ -625,18 +640,24 @@ class PresubmitChecker:
 
         results = []
 
-        # Check matrix structure
+        tasks = presubmit.get('tasks', {})
+
+        # Check matrix structure. Platforms may be declared per task instead of
+        # globally when different platforms require different build flags.
         matrix = presubmit.get('matrix', {})
         if not matrix:
             results.append(CheckResult("presubmit-yaml/matrix", False, "Missing matrix configuration"))
         else:
-            if 'platform' not in matrix:
-                results.append(CheckResult("presubmit-yaml/matrix-platform", False, "Missing platform in matrix"))
+            if 'platform' not in matrix and not tasks_define_platforms(tasks):
+                results.append(CheckResult(
+                    "presubmit-yaml/matrix-platform",
+                    False,
+                    "Missing platform in matrix or platforms in every task",
+                ))
             if 'bazel' not in matrix:
                 results.append(CheckResult("presubmit-yaml/matrix-bazel", False, "Missing bazel in matrix"))
 
         # Check tasks
-        tasks = presubmit.get('tasks', {})
         if not tasks:
             results.append(CheckResult("presubmit-yaml/tasks", False, "No tasks defined"))
 
