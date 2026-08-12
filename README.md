@@ -19,6 +19,7 @@ curl -sSL https://raw.githubusercontent.com/kekxv/bcr/publish-to-bcr/.github/scr
 python3 .github/scripts/init_ruleset.py \
   --module-name "my_module" \
   --bcr "kekxv/bcr" \
+  --bcr-fork "your_username/bcr" \
   --github-user "your_username"
 ```
 
@@ -48,6 +49,10 @@ jobs:
     with:
       tag_name: ${{ github.event.release.tag_name }}
       module_name: "your_module"
+      registry: "kekxv/bcr"
+      registry_fork: "your_username/bcr"
+    secrets:
+      publish_token: ${{ secrets.BCR_PUBLISH_TOKEN }}
 ```
 
 ## 输入参数
@@ -56,11 +61,11 @@ jobs:
 |------|------|--------|------|
 | `tag_name` | 是 | - | Release tag |
 | `module_name` | 是 | - | 模块名 |
-| `registry` | 否 | 调用者仓库 | 目标 BCR |
+| `registry` | 否 | `kekxv/bcr` | 目标 BCR |
 | `registry_fork` | 否 | - | BCR fork (跨仓库 PR) |
 | `tag_prefix` | 否 | `v` | Tag 前缀 |
 | `templates_dir` | 否 | `.bcr` | 模板目录 |
-| `draft` | 否 | `true` | Draft PR |
+| `draft` | 否 | `false` | Draft PR |
 | `source_url` | 否 | 自动生成 | Source URL |
 | `strip_prefix` | 否 | 自动检测 | Strip prefix |
 
@@ -70,15 +75,23 @@ jobs:
 
 ```
 .bcr/
-├── metadata.template.json  # 可选
+├── metadata.template.json  # 新模块必需，已有模块可选
 ├── source.template.json    # 可选
 ├── presubmit.yml           # 可选
-├── MODULE.bazel            # 可选
+├── MODULE.bazel            # 可选；缺省时使用仓库根 MODULE.bazel
 ├── patches/                # 可选
 └── overlay/                # 可选
 ```
 
-占位符：`{OWNER}`, `{REPO}`, `{VERSION}`, `{TAG}`, `{MODULE}`
+占位符支持单、双花括号两种形式，效果相同：
+
+- `{OWNER}` 或 `{{OWNER}}`
+- `{REPO}` 或 `{{REPO}}`
+- `{VERSION}` 或 `{{VERSION}}`
+- `{TAG}` 或 `{{TAG}}`
+- `{MODULE}` 或 `{{MODULE}}`
+
+JSON 模板中的嵌套对象、数组、键和值都会递归处理。
 
 ## Fork 检测
 
@@ -86,6 +99,9 @@ jobs:
 - **SAME_REGISTRY**: 同仓库操作
 - **SAME_REGISTRY_FORK**: ruleset 是 BCR 的 fork
 - **EXTERNAL_FORK**: 使用 registry_fork 参数
+
+跨仓库创建 PR（包括 `SAME_REGISTRY_FORK`）需要设置
+`BCR_PUBLISH_TOKEN`，因为仓库级 `GITHUB_TOKEN` 无法写入上游 registry。
 
 ## 分支命名
 

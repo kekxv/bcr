@@ -1,268 +1,270 @@
 #!/usr/bin/env python3
-"""
-发布 Action - 生成 BCR entry 文件。
-"""
+"""Generate a Bazel Central Registry module entry."""
 
 import argparse
 import base64
 import hashlib
+import ipaddress
 import json
 import os
 import re
-import sys
-import urllib.request
+import socket
 import ssl
-import yaml
-from dataclasses import dataclass
+import sys
+import urllib.parse
+import urllib.request
+import urllib.error
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable
+
+from template_processor import load_templates, process_templates, substitute_placeholders
 
 
-@dataclass
-class Version:
-    major: int = 0
-    minor: int = 0
-    patch: int = 0
-    prerelease: Optional[str] = None
-    bcr_patch: int = 0
-
-    @classmethod
-    def parse(cls, v: str) -> "Version":
-        v = v.lstrip('v')
-        m = re.match(r'^(.+)\.bcr\.(\d+)$', v)
-        bcr = int(m.group(2)) if m else 0
-        v = m.group(1) if m else v
-        m = re.match(r'^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-(.+))?$', v)
-        if not m:
-            raise ValueError(v)
-        return cls(int(m.group(1)), int(m.group(2) or 0), int(m.group(3) or 0), m.group(4), bcr)
-
-    def __lt__(self, o: "Version") -> bool:
-        if (self.major, self.minor, self.patch) != (o.major, o.minor, o.patch):
-            return (self.major, self.minor, self.patch) < (o.major, o.minor, o.patch)
-        if self.prerelease is None and o.prerelease:
-            return False
-        if self.prerelease and o.prerelease is None:
-            return True
-        if self.prerelease != o.prerelease:
-            return (self.prerelease or "") < (o.prerelease or "")
-        return self.bcr_patch < o.bcr_patch
-
-    def __eq__(self, o: object) -> bool:
-        return isinstance(o, Version) and (self.major, self.minor, self.patch, self.prerelease, self.bcr_patch) == (o.major, o.minor, o.patch, o.prerelease, o.bcr_patch)
-
-    def __le__(self, o): return self == o or self < o
-    def __gt__(self, o): return not self <= o
-    def __ge__(self, o): return not self < o
+MAX_DOWNLOAD_BYTES = 1024 * 1024 * 1024
+MODULE_RE = re.compile(r"^[a-z][a-z0-9._-]*$")
+VERSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._+-]*$")
+REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
-def sort_versions(versions: List[str]) -> List[str]:
-    try:
-        return sorted(versions, key=Version.parse)
-    except:
-        return sorted(versions)
+def validate_component(value: str, pattern: re.Pattern[str], label: str) -> str:
+    if not pattern.fullmatch(value) or value in {".", ".."}:
+        raise ValueError(f"Invalid {label}: {value!r}")
+    return value
+
+
+def resolve_within(root: Path, relative: str | Path) -> Path:
+    root = root.resolve()
+    relative = Path(relative)
+    if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        raise ValueError(f"Unsafe relative path: {relative}")
+    candidate = root.joinpath(*relative.parts)
+    current = root
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            raise ValueError(f"Symbolic links are not allowed: {current}")
+    resolved = candidate.resolve(strict=False)
+    if not resolved.is_relative_to(root):
+        raise ValueError(f"Path escapes root: {relative}")
+    return resolved
+
+
+def natural_tokens(value: str) -> tuple[tuple[int, Any], ...]:
+    return tuple(
+        (0, int(token)) if token.isdigit() else (1, token.lower())
+        for token in re.findall(r"\d+|\D+", value)
+    )
+
+
+def version_key(value: str) -> tuple[Any, ...]:
+    normalized = value[1:] if value.startswith("v") else value
+    match = re.fullmatch(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?(.*)", normalized)
+    if not match:
+        return (1, natural_tokens(normalized))
+    major, minor, patch = (int(match.group(i) or 0) for i in range(1, 4))
+    suffix = match.group(4)
+    if not suffix:
+        stage = (2, ())  # release
+    elif suffix.startswith(".bcr."):
+        stage = (3, natural_tokens(suffix[5:]))  # BCR revision
+    else:
+        stage = (1, natural_tokens(suffix.lstrip("-._")))  # prerelease
+    return (0, major, minor, patch, *stage)
+
+
+def sort_versions(versions: Iterable[str]) -> list[str]:
+    return sorted(versions, key=version_key)
 
 
 def calculate_integrity(data: bytes) -> str:
-    return "sha256-" + base64.b64encode(hashlib.sha256(data).digest()).decode('ascii')
+    return "sha256-" + base64.b64encode(hashlib.sha256(data).digest()).decode("ascii")
 
 
-def substitute(content: str, ctx: Dict[str, str]) -> str:
-    for k, v in ctx.items():
-        content = content.replace(f"{{{k}}}", v)
-    return content
+def validate_public_https_url(url: str) -> None:
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme.lower() != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Source URL must be public HTTPS without embedded credentials")
+    addresses = socket.getaddrinfo(parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM)
+    for address in addresses:
+        ip = ipaddress.ip_address(address[4][0])
+        if not ip.is_global:
+            raise ValueError(f"Source host resolves to a non-public address: {ip}")
 
 
-def download_archive(url: str) -> Tuple[bytes, str]:
+class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        validate_public_https_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def download_archive(url: str) -> str:
     print(f"下载: {url}")
-    ssl_ctx = ssl.create_default_context()
-    req = urllib.request.Request(url, headers={'User-Agent': 'BCR-Publish/1.0'})
-    with urllib.request.urlopen(req, context=ssl_ctx, timeout=120) as resp:
-        data = resp.read()
-    return data, calculate_integrity(data)
+    validate_public_https_url(url)
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+        SafeRedirectHandler(),
+    )
+    request = urllib.request.Request(url, headers={"User-Agent": "BCR-Publish/1.0"})
+    downloaded = 0
+    sha256 = hashlib.sha256()
+    with opener.open(request, timeout=120) as response:
+        content_length = response.headers.get("Content-Length")
+        if content_length and int(content_length) > MAX_DOWNLOAD_BYTES:
+            raise ValueError("Source archive exceeds the 1 GiB limit")
+        while True:
+            chunk = response.read(64 * 1024)
+            if not chunk:
+                break
+            downloaded += len(chunk)
+            if downloaded > MAX_DOWNLOAD_BYTES:
+                raise ValueError("Source archive exceeds the 1 GiB limit")
+            sha256.update(chunk)
+    return "sha256-" + base64.b64encode(sha256.digest()).decode("ascii")
 
 
-def load_templates(path: Path, ctx: Dict[str, str]) -> Dict[str, Any]:
-    if not path.exists():
-        return {}
-    t = {}
-    for n, f in [('metadata', 'metadata.template.json'), ('source', 'source.template.json')]:
-        p = path / f
-        if p.exists():
-            d = json.loads(p.read_text())
-            t[n] = {k: substitute(v, ctx) if isinstance(v, str) else v for k, v in d.items()}
-    for n, f in [('presubmit', 'presubmit.yml'), ('module_bazel', 'MODULE.bazel')]:
-        p = path / f
-        if p.exists():
-            t[n] = substitute(p.read_text(), ctx)
-    patches_dir = path / 'patches'
-    if patches_dir.exists():
-        t['patches'] = {}
-        t['patches_data'] = {}
-        for f in patches_dir.glob("*.patch"):
-            d = f.read_bytes()
-            t['patches'][f.name] = calculate_integrity(d)
-            t['patches_data'][f.name] = d
-    overlay_dir = path / 'overlay'
-    if overlay_dir.exists():
-        t['overlay'] = {}
-        t['overlay_data'] = {}
-        for f in overlay_dir.rglob("*"):
-            if f.is_file() and not f.name.startswith('.'):
-                r = str(f.relative_to(overlay_dir))
-                d = f.read_bytes()
-                t['overlay'][r] = calculate_integrity(d)
-                t['overlay_data'][r] = d
-    return t
+def update_module_version(content: str, version: str) -> str:
+    if "{VERSION}" in content or "{{VERSION}}" in content:
+        return substitute_placeholders(content, {"VERSION": version})
+    module_match = re.search(r"module\s*\((.*?)\)", content, re.DOTALL)
+    if not module_match:
+        raise ValueError("MODULE.bazel does not contain a module() declaration")
+    block = module_match.group(1)
+    if re.search(r'version\s*=\s*"[^"]*"', block):
+        new_block = re.sub(r'version\s*=\s*"[^"]*"', f'version = "{version}"', block, count=1)
+    else:
+        name_match = re.search(r'name\s*=\s*"[^"]*"', block)
+        if not name_match:
+            raise ValueError("module() declaration does not contain a name")
+        new_block = block.replace(name_match.group(0), f"{name_match.group(0)}, version = \"{version}\"", 1)
+    return content[:module_match.start(1)] + new_block + content[module_match.end(1):]
 
 
-def main():
-    parser = argparse.ArgumentParser(description='生成 BCR module entry')
-    parser.add_argument('--tag-name', required=True)
-    parser.add_argument('--module-name', required=True)
-    parser.add_argument('--registry-path', default='registry')
-    parser.add_argument('--ruleset-path', default='.')
-    parser.add_argument('--tag-prefix', default='v')
-    parser.add_argument('--templates-dir', default='.bcr')
-    parser.add_argument('--source-url', default='')
-    parser.add_argument('--strip-prefix', default='')
+def build_metadata(existing_path: Path, template: Dict[str, Any] | None, version: str) -> Dict[str, Any]:
+    if existing_path.exists():
+        metadata = json.loads(existing_path.read_text(encoding="utf-8"))
+    elif template:
+        metadata = dict(template)
+    else:
+        raise ValueError("New modules require metadata.template.json")
+
+    required = ("homepage", "maintainers", "repository")
+    missing = [key for key in required if not metadata.get(key)]
+    if missing:
+        raise ValueError(f"metadata is missing required fields: {', '.join(missing)}")
+    versions = list(metadata.get("versions", []))
+    if version not in versions:
+        versions.append(version)
+    metadata["versions"] = sort_versions(versions)
+    metadata.setdefault("yanked_versions", {})
+    return metadata
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="生成 BCR module entry")
+    parser.add_argument("--tag-name", required=True)
+    parser.add_argument("--module-name", required=True)
+    parser.add_argument("--registry-path", default="registry")
+    parser.add_argument("--ruleset-path", default=".")
+    parser.add_argument("--tag-prefix", default="v")
+    parser.add_argument("--templates-dir", default=".bcr")
+    parser.add_argument("--source-url", default="")
+    parser.add_argument("--strip-prefix", default="")
     args = parser.parse_args()
 
-    version = args.tag_name[len(args.tag_prefix):] if args.tag_name.startswith(args.tag_prefix) else args.tag_name
-    print(f"版本: {version}")
+    try:
+        module_name = validate_component(args.module_name, MODULE_RE, "module name")
+        version = args.tag_name[len(args.tag_prefix):] if args.tag_name.startswith(args.tag_prefix) else args.tag_name
+        version = validate_component(version, VERSION_RE, "version")
+        repository = os.environ.get("GITHUB_REPOSITORY", "")
+        validate_component(repository, REPOSITORY_RE, "GITHUB_REPOSITORY")
+        owner, repository_name = repository.split("/", 1)
 
-    repo = os.environ.get('GITHUB_REPOSITORY', '')
-    owner, name = repo.split('/') if repo else ('', '')
+        registry_root = Path(args.registry_path).resolve()
+        ruleset_root = Path(args.ruleset_path).resolve()
+        templates_path = resolve_within(ruleset_root, args.templates_dir)
+        context = {
+            "OWNER": owner,
+            "REPO": repository_name,
+            "VERSION": version,
+            "TAG": args.tag_name,
+            "MODULE": module_name,
+        }
+        templates = process_templates(load_templates(templates_path), context)
 
-    ctx = {'OWNER': owner, 'REPO': name, 'VERSION': version, 'TAG': args.tag_name, 'MODULE': args.module_name}
+        source_template = dict(templates.get("source", {}))
+        url = args.source_url or source_template.get("url") or (
+            f"https://github.com/{owner}/{repository_name}/archive/refs/tags/{args.tag_name}.tar.gz"
+        )
+        integrity = download_archive(url)
 
-    t = load_templates(Path(args.ruleset_path) / args.templates_dir, ctx)
-
-    url = args.source_url or t.get('source', {}).get('url') or f"https://github.com/{owner}/{name}/archive/refs/tags/{args.tag_name}.tar.gz"
-    data, integrity = download_archive(url)
-
-    # Determine strip_prefix:
-    # 1. Command line --strip-prefix takes precedence
-    # 2. Template value (including empty string "") means user explicitly wants that value
-    # 3. Default to "{name}-{version}" only if template has no strip_prefix key at all
-    source_template = t.get('source', {})
-    if args.strip_prefix:
-        strip = args.strip_prefix
-    elif 'strip_prefix' in source_template:
-        # User explicitly set strip_prefix in template (could be "" to disable)
-        strip = source_template['strip_prefix']
-    else:
-        strip = f"{name}-{version}"
-    print(f"Strip prefix: {strip}")
-
-    entry = Path(args.registry_path) / "modules" / args.module_name / version
-    entry.mkdir(parents=True, exist_ok=True)
-
-    source = {"url": url, "integrity": integrity}
-    if strip:
-        source["strip_prefix"] = strip
-    if t.get('patches'):
-        source["patches"] = t['patches']
-        source["patch_strip"] = 1
-    if t.get('overlay'):
-        source["overlay"] = t['overlay']
-
-    (entry / "source.json").write_text(json.dumps(source, indent=2) + '\n')
-
-    # MODULE.bazel - required, priority: .bcr template > root MODULE.bazel > error
-    if t.get('module_bazel'):
-        (entry / "MODULE.bazel").write_text(t['module_bazel'])
-        print("使用 .bcr/MODULE.bazel 模板")
-    else:
-        # Check root MODULE.bazel in ruleset
-        root_module = Path(args.ruleset_path) / "MODULE.bazel"
-        if root_module.exists():
-            content = root_module.read_text()
-            original = content
-
-            # First try placeholder substitution
-            if '{VERSION}' in content:
-                content = substitute(content, ctx)
-            else:
-                # Need to update version only in module() block, not bazel_dep etc.
-                # Find module() block and update version within it
-
-                # Match module(...) - handle multi-line with re.DOTALL
-                module_match = re.search(r'module\s*\((.*?)\)', content, re.DOTALL)
-                if module_match:
-                    module_block = module_match.group(1)
-
-                    # Check if version exists in module block
-                    if re.search(r'version\s*=\s*"[^"]*"', module_block):
-                        # Replace existing version in module block
-                        new_block = re.sub(
-                            r'version\s*=\s*"[^"]*"',
-                            f'version = "{version}"',
-                            module_block
-                        )
-                    else:
-                        # Add version after name attribute
-                        name_match = re.search(r'name\s*=\s*"[^"]*"', module_block)
-                        if name_match:
-                            # Find the position after name attribute
-                            new_block = module_block.replace(
-                                name_match.group(0),
-                                f'{name_match.group(0)}, version = "{version}"'
-                            )
-                        else:
-                            # No name in module block - shouldn't happen
-                            print("警告: module() 块中未找到 name 属性")
-                            new_block = module_block
-
-                    # Replace the entire module block
-                    content = content.replace(module_block, new_block)
-
-            (entry / "MODULE.bazel").write_text(content)
-            if content != original:
-                print("使用根目录 MODULE.bazel（版本已更新）")
-            else:
-                print("使用根目录 MODULE.bazel")
+        if args.strip_prefix:
+            strip_prefix = args.strip_prefix
+        elif "strip_prefix" in source_template:
+            strip_prefix = source_template.get("strip_prefix")
         else:
-            print("错误: MODULE.bazel 未找到")
-            print("请提供以下之一:")
-            print("  1. .bcr/MODULE.bazel 模板文件")
-            print("  2. 根目录 MODULE.bazel 文件")
-            sys.exit(1)
+            strip_prefix = f"{repository_name}-{version}"
 
-    # presubmit.yml - optional, use template if available, otherwise skip
-    if t.get('presubmit'):
-        (entry / "presubmit.yml").write_text(t['presubmit'])
-        print("使用 .bcr/presubmit.yml 模板")
-    else:
-        print("跳过 presubmit.yml（未找到 .bcr/presubmit.yml 模板）")
+        modules_root = registry_root / "modules"
+        if modules_root.is_symlink():
+            raise ValueError(f"Symbolic links are not allowed: {modules_root}")
+        modules_root.mkdir(parents=True, exist_ok=True)
+        module_root = resolve_within(modules_root, module_name)
+        entry = resolve_within(module_root, version)
+        if entry.exists():
+            raise ValueError(f"Module version already exists: {module_name}@{version}")
 
-    if t.get('patches_data'):
-        (entry / "patches").mkdir(exist_ok=True)
-        for n, d in t['patches_data'].items():
-            (entry / "patches" / n).write_bytes(d)
+        metadata_path = resolve_within(module_root, "metadata.json")
+        metadata = build_metadata(metadata_path, templates.get("metadata"), version)
 
-    if t.get('overlay_data'):
-        (entry / "overlay").mkdir(exist_ok=True)
-        for n, d in t['overlay_data'].items():
-            p = entry / "overlay" / n
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_bytes(d)
+        module_content = templates.get("module_bazel")
+        if not module_content:
+            root_module = resolve_within(ruleset_root, "MODULE.bazel")
+            if not root_module.is_file():
+                raise ValueError("MODULE.bazel not found in templates or repository root")
+            module_content = update_module_version(root_module.read_text(encoding="utf-8"), version)
 
-    meta_path = Path(args.registry_path) / "modules" / args.module_name / "metadata.json"
-    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {"versions": [], "yanked_versions": {}}
-    if version not in meta["versions"]:
-        meta["versions"].append(version)
-        meta["versions"] = sort_versions(meta["versions"])
-    meta_path.write_text(json.dumps(meta, indent=2) + '\n')
+        entry.mkdir(parents=True)
+        source = source_template
+        source.update({"url": url, "integrity": integrity})
+        if strip_prefix:
+            source["strip_prefix"] = strip_prefix
+        else:
+            source.pop("strip_prefix", None)
+        if templates.get("patches"):
+            source.update({"patches": templates["patches"], "patch_strip": 1})
+        if templates.get("overlay"):
+            source["overlay"] = templates["overlay"]
 
-    branch = f"{args.module_name}.{version}"
-    print(f"entry_path={entry}")
-    print(f"branch_name={branch}")
+        (entry / "source.json").write_text(json.dumps(source, indent=2) + "\n", encoding="utf-8")
+        (entry / "MODULE.bazel").write_text(module_content, encoding="utf-8")
+        if templates.get("presubmit"):
+            (entry / "presubmit.yml").write_text(templates["presubmit"], encoding="utf-8")
 
-    if out := os.environ.get('GITHUB_OUTPUT'):
-        with open(out, 'a') as f:
-            f.write(f"module_name={args.module_name}\nversion={version}\nentry_path={entry}\nbranch_name={branch}\n")
+        for directory, values in (("patches", templates.get("patches_data", {})),
+                                  ("overlay", templates.get("overlay_data", {}))):
+            for name, content in values.items():
+                target = resolve_within(entry / directory, name)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+
+        module_root.mkdir(parents=True, exist_ok=True)
+        metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+
+        branch = f"{module_name}.{version}"
+        print(f"版本: {version}")
+        print(f"entry_path={entry}")
+        print(f"branch_name={branch}")
+        if output := os.environ.get("GITHUB_OUTPUT"):
+            with open(output, "a", encoding="utf-8") as handle:
+                handle.write(
+                    f"module_name={module_name}\nversion={version}\n"
+                    f"entry_path={entry}\nbranch_name={branch}\n"
+                )
+        return 0
+    except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError) as exc:
+        print(f"错误: {exc}", file=sys.stderr)
+        return 1
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    raise SystemExit(main())

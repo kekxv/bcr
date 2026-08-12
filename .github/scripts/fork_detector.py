@@ -9,7 +9,17 @@ import os
 import sys
 import urllib.request
 import ssl
+import re
 from typing import Optional, Tuple
+
+
+REPOSITORY_RE = re.compile(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')
+
+
+def validate_repository(value: str, label: str) -> str:
+    if not REPOSITORY_RE.fullmatch(value):
+        raise ValueError(f"Invalid {label}: {value!r}")
+    return value
 
 
 def parse_args():
@@ -37,30 +47,31 @@ def get_github_api(url: str, token: str) -> Optional[dict]:
         return None
 
 
-def detect_strategy(repository: str, registry: str, registry_fork: str, token: str) -> Tuple[str, str]:
-    """检测发布策略。返回: (strategy, token_type)"""
+def detect_strategy(repository: str, registry: str, registry_fork: str, token: str) -> Tuple[str, str, str]:
+    """检测发布策略。返回: (strategy, token_type, push_target)"""
     if repository == registry:
-        return "SAME_REGISTRY", "GITHUB_TOKEN"
+        return "SAME_REGISTRY", "GITHUB_TOKEN", registry
+
+    # 同一 owner 下的仓库，不需要 fork，但需要 PAT 才能 push 到其他仓库
+    repo_owner = repository.split('/', 1)[0]
+    reg_owner = registry.split('/', 1)[0]
+    if repo_owner.casefold() == reg_owner.casefold():
+        return "SAME_OWNER", "PAT", registry
 
     repo_url = f"https://api.github.com/repos/{repository}"
     repo_data = get_github_api(repo_url, token)
 
-    # 同一 owner 下的仓库，不需要 fork，但需要 PAT 才能 push 到其他仓库
-    if repo_data:
-        repo_owner = repo_data.get('owner', {}).get('login', '')
-        reg_owner = registry.split('/')[0]
-        if repo_owner == reg_owner:
-            return "SAME_OWNER", "PAT"
-
     if repo_data:
         parent = repo_data.get('parent', {})
         if parent.get('full_name') == registry:
-            return "SAME_REGISTRY_FORK", "GITHUB_TOKEN"
+            # A repository-scoped GITHUB_TOKEN can push this fork but cannot
+            # create a pull request in the upstream registry repository.
+            return "SAME_REGISTRY_FORK", "PAT", repository
 
     if registry_fork:
-        return "EXTERNAL_FORK", "PAT"
+        return "EXTERNAL_FORK", "PAT", registry_fork
 
-    return "NEEDS_FORK_CONFIG", "PAT"
+    return "NEEDS_FORK_CONFIG", "PAT", registry
 
 
 def main():
@@ -71,11 +82,20 @@ def main():
         print("错误: 未设置 GITHUB_TOKEN 环境变量")
         sys.exit(1)
 
-    strategy, token_type = detect_strategy(
-        args.repository, args.registry, args.registry_fork, token
-    )
+    try:
+        repository = validate_repository(args.repository, 'repository')
+        registry = validate_repository(args.registry, 'registry')
+        registry_fork = (
+            validate_repository(args.registry_fork, 'registry fork')
+            if args.registry_fork else ''
+        )
+    except ValueError as exc:
+        print(f"错误: {exc}")
+        sys.exit(1)
 
-    target_registry = args.registry_fork or args.registry
+    strategy, token_type, target_registry = detect_strategy(
+        repository, registry, registry_fork, token
+    )
 
     print(f"strategy={strategy}")
     print(f"token_type={token_type}")

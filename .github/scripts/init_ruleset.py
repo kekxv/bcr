@@ -18,7 +18,13 @@ import argparse
 import json
 import os
 import sys
+import re
 from pathlib import Path
+
+
+MODULE_RE = re.compile(r'^[a-z][a-z0-9._-]*$')
+REPOSITORY_RE = re.compile(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')
+NAME_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
 
 
 WORKFLOW_TEMPLATE = '''name: Publish to BCR
@@ -33,6 +39,8 @@ jobs:
     with:
       tag_name: ${{{{ github.event.release.tag_name }}}}
       module_name: "{module_name}"
+      registry: "{bcr}"
+      registry_fork: "{bcr_fork}"
     secrets:
       publish_token: ${{{{ secrets.BCR_PUBLISH_TOKEN }}}}
 '''
@@ -86,6 +94,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='初始化 ruleset 仓库的 BCR 发布配置')
     parser.add_argument('--module-name', required=True, help='模块名')
     parser.add_argument('--bcr', required=True, help='BCR 仓库 (owner/repo)')
+    parser.add_argument('--bcr-fork', default='', help='可写的 BCR fork (owner/repo)')
     parser.add_argument('--owner', default='', help='仓库 owner（默认从 git 获取）')
     parser.add_argument('--repo', default='', help='仓库名（默认从 git 获取）')
     parser.add_argument('--github-user', default='', help='GitHub 用户名')
@@ -122,6 +131,16 @@ def get_git_info():
 def main():
     args = parse_args()
 
+    if not MODULE_RE.fullmatch(args.module_name):
+        print(f"错误: 无效模块名: {args.module_name!r}")
+        sys.exit(1)
+    if not REPOSITORY_RE.fullmatch(args.bcr):
+        print(f"错误: 无效 BCR 仓库: {args.bcr!r}")
+        sys.exit(1)
+    if args.bcr_fork and not REPOSITORY_RE.fullmatch(args.bcr_fork):
+        print(f"错误: 无效 BCR fork: {args.bcr_fork!r}")
+        sys.exit(1)
+
     # 获取仓库信息
     owner = args.owner
     repo = args.repo
@@ -133,12 +152,20 @@ def main():
     if not owner or not repo:
         print("错误: 无法确定仓库信息，请使用 --owner 和 --repo 参数")
         sys.exit(1)
+    if not NAME_RE.fullmatch(owner) or not NAME_RE.fullmatch(repo):
+        print("错误: owner 或 repo 包含不允许的字符")
+        sys.exit(1)
 
     github_user = args.github_user or owner
+    if not NAME_RE.fullmatch(github_user):
+        print("错误: GitHub 用户名包含不允许的字符")
+        sys.exit(1)
 
     print(f"模块名: {args.module_name}")
     print(f"仓库: {owner}/{repo}")
     print(f"BCR: {args.bcr}")
+    if args.bcr_fork:
+        print(f"BCR fork: {args.bcr_fork}")
     print(f"GitHub 用户: {github_user}")
     print()
 
@@ -148,7 +175,7 @@ def main():
 
     files = {
         workflow_dir / "publish_to_bcr.yml": WORKFLOW_TEMPLATE.format(
-            bcr=args.bcr, module_name=args.module_name
+            bcr=args.bcr, bcr_fork=args.bcr_fork, module_name=args.module_name
         ),
         bcr_dir / "metadata.template.json": METADATA_TEMPLATE.format(
             owner=owner, repo=repo, github_user=github_user
