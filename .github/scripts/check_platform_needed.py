@@ -47,28 +47,37 @@ def get_platform_os_arch(platform: str) -> tuple:
 def get_presubmit_platforms(presubmit_path: Path) -> List[str]:
     """Get platforms from presubmit.yml."""
     if not presubmit_path.exists():
-        return ['ubuntu2404', 'macos', 'windows']  # Default platforms
+        return ['ubuntu', 'macos', 'windows']  # Default platforms
     
     try:
         with open(presubmit_path, 'r') as f:
             config = yaml.safe_load(f)
+
+        if not isinstance(config, dict):
+            return ['ubuntu', 'macos', 'windows']
         
         matrix = config.get('matrix', {})
+        if not isinstance(matrix, dict):
+            return ['ubuntu', 'macos', 'windows']
         platforms = matrix.get('platform', [])
+        if not isinstance(platforms, list):
+            return ['ubuntu', 'macos', 'windows']
         
         if not platforms:
             # Check tasks for platform definitions
             tasks = config.get('tasks', {})
+            if not isinstance(tasks, dict):
+                return ['ubuntu', 'macos', 'windows']
             for task_name, task_config in tasks.items():
-                if 'platform' in task_config:
+                if isinstance(task_config, dict) and 'platform' in task_config:
                     task_platform = task_config['platform']
                     if isinstance(task_platform, str) and not task_platform.startswith('${'):
                         platforms.append(task_platform)
         
-        return platforms if platforms else ['ubuntu2404', 'macos', 'windows']
+        return platforms if platforms else ['ubuntu', 'macos', 'windows']
         
     except (yaml.YAMLError, IOError):
-        return ['ubuntu2404', 'macos', 'windows']
+        return ['ubuntu', 'macos', 'windows']
 
 
 def is_platform_needed(platform: str, modules_path: Path, all_changes: Dict[str, List[str]]) -> bool:
@@ -96,7 +105,7 @@ def is_platform_needed(platform: str, modules_path: Path, all_changes: Dict[str,
                     # If presubmit specifies x86_64 (or generic), match both
                     if presubmit_arch == current_arch:
                         return True
-                    # Generic platforms (debian10, ubuntu2404) match x86_64 runners
+                    # Generic platforms (debian10, ubuntu) match x86_64 runners
                     # But also allow them to match arm64 if explicitly specified
                     if presubmit_arch == 'x86_64' and current_arch == 'x86_64':
                         return True

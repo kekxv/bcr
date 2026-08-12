@@ -40,9 +40,14 @@ def resolve_within(root: Path, relative_path: str | Path, *, reject_symlinks: bo
     """Resolve a relative path and guarantee that it stays below root."""
     root = root.resolve()
     relative = Path(relative_path)
-    if relative.is_absolute() or any(part in {'', '.', '..'} for part in relative.parts):
+    if not relative.parts or relative.anchor or any(part in {'', '.', '..'} for part in relative.parts):
         raise ValueError(f"Unsafe relative path: {relative_path!r}")
-    if '\\' in str(relative_path) or '\x00' in str(relative_path):
+    # A Path uses backslashes as normal separators on Windows. Continue to
+    # reject them in raw strings (and in POSIX path components), where they
+    # are ambiguous and could be interpreted differently on another OS.
+    if ('\x00' in str(relative_path)
+            or (isinstance(relative_path, str) and '\\' in relative_path)
+            or (os.sep != '\\' and any('\\' in part for part in relative.parts))):
         raise ValueError(f"Unsafe relative path: {relative_path!r}")
 
     candidate = root.joinpath(*relative.parts)

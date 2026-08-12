@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import sys
 import tempfile
 import unittest
@@ -9,18 +10,30 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from generate_diff import code_block, get_recursive_files
+from check_platform_needed import get_presubmit_platforms
+from get_test_platforms import DEFAULT_PLATFORMS, get_platforms_from_presubmit
 from presubmit import validate_public_https_url
 from registry import resolve_within, validate_module_name, validate_version_name
-from run_bazel_tests import validate_bazel_flags, validate_target
+from run_bazel_tests import DEFAULT_BAZEL_OUTPUT_FLAGS, validate_bazel_flags, validate_target
 
 
 class SafePathTests(unittest.TestCase):
     def test_rejects_parent_and_absolute_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for value in ('../secret', '/etc/passwd', 'dir/../../secret', 'dir\\secret'):
+            for value in ('', '../secret', '/etc/passwd', 'dir/../../secret', 'dir\\secret'):
                 with self.subTest(value=value), self.assertRaises(ValueError):
                     resolve_within(root, value)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows-specific Path rendering')
+    def test_accepts_normal_windows_path_objects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            expected = root / 'khttpd' / '0.3.0' / 'presubmit.yml'
+            self.assertEqual(
+                resolve_within(root, Path('khttpd') / '0.3.0' / 'presubmit.yml'),
+                expected.resolve(),
+            )
 
     def test_rejects_file_symlinks(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -67,6 +80,23 @@ class RenderingAndBazelTests(unittest.TestCase):
     def test_rejects_flag_as_target(self):
         with self.assertRaises(ValueError):
             validate_target('--action_env=GITHUB_TOKEN')
+
+    def test_default_bazel_output_suppresses_low_severity_events(self):
+        self.assertEqual(
+            DEFAULT_BAZEL_OUTPUT_FLAGS,
+            ('--ui_event_filters=-debug,-info,-progress',),
+        )
+
+
+class PlatformConfigTests(unittest.TestCase):
+    def test_invalid_presubmit_shapes_use_default_platforms(self):
+        with tempfile.TemporaryDirectory() as directory:
+            presubmit = Path(directory) / 'presubmit.yml'
+            for content in ('', '[]', 'matrix: []', 'matrix:\n  platform: windows', 'tasks: []'):
+                with self.subTest(content=content):
+                    presubmit.write_text(content)
+                    self.assertEqual(get_presubmit_platforms(presubmit), DEFAULT_PLATFORMS)
+                    self.assertEqual(get_platforms_from_presubmit(presubmit), DEFAULT_PLATFORMS)
 
 
 class NetworkTests(unittest.TestCase):
