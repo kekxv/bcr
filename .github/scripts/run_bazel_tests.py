@@ -27,9 +27,19 @@ DENIED_BAZEL_FLAG_PREFIXES = (
 # Keep warnings, errors, and their raw diagnostic streams while suppressing
 # Bazel's informational/debug/progress UI events by default.
 DEFAULT_BAZEL_OUTPUT_FLAGS = (
+  '--noshow_progress',
   '--ui_event_filters=-debug,-info,-progress',
 )
 DEFAULT_PLATFORMS = ('ubuntu', 'macos', 'windows')
+
+BAZEL_ERROR_PATTERNS = (
+  re.compile(r'\bERROR\b', re.IGNORECASE),
+  re.compile(r'\bfatal error\b', re.IGNORECASE),
+  re.compile(r'\berror\s+C\d+\b', re.IGNORECASE),
+  re.compile(r'\bexception\b', re.IGNORECASE),
+  re.compile(r'No repository visible', re.IGNORECASE),
+  re.compile(r'Error loading option', re.IGNORECASE),
+)
 
 
 def validate_bazel_version(value: str) -> str:
@@ -37,6 +47,56 @@ def validate_bazel_version(value: str) -> str:
   if not re.fullmatch(r'[0-9]+(?:\.[0-9x]+){0,2}', value):
     raise ValueError(f"Unsupported Bazel version: {value!r}")
   return value
+
+
+def create_bazel_environment(bazel_version: str) -> dict[str, str]:
+  """Return an environment that makes Bazelisk select the requested Bazel version."""
+  env = os.environ.copy()
+  env['USE_BAZEL_VERSION'] = bazel_version
+  return env
+
+
+def shutdown_bazel(env: dict[str, str]):
+  """Stop the Bazel server using the same Bazelisk version as the next command."""
+  return subprocess.run(
+    ['bazel', 'shutdown', *DEFAULT_BAZEL_OUTPUT_FLAGS],
+    env=env,
+  )
+
+
+def extract_bazel_errors(output: str, limit: int = 20) -> list[str]:
+  """Extract concise, de-duplicated error lines from Bazel output."""
+  errors = []
+  seen = set()
+  for raw_line in output.splitlines():
+    line = raw_line.strip()
+    if not line or not any(pattern.search(line) for pattern in BAZEL_ERROR_PATTERNS):
+      continue
+    if line not in seen:
+      seen.add(line)
+      errors.append(line)
+    if len(errors) == limit:
+      break
+  if errors:
+    return errors
+
+  # Some tools fail without an ERROR-prefixed diagnostic. Preserve a small
+  # tail so the summary still contains actionable information.
+  tail = [line.strip() for line in output.splitlines() if line.strip()]
+  return tail[-5:]
+
+
+def run_bazel_command(cmd: list[str], cwd: Path, env: dict[str, str]):
+  """Run Bazel quietly and retain combined output for failure summaries."""
+  return subprocess.run(
+    cmd,
+    cwd=cwd,
+    env=env,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+    errors='replace',
+  )
 
 
 def validate_bazel_flags(flags, field_name: str) -> list[str]:
@@ -281,6 +341,7 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
     return 0
 
   failed = []
+  bazel_failures = []
   skipped = []
   passed = []
 
@@ -358,12 +419,11 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
           continue
         print(f"\n>>> Testing with Bazel version: {bazel_ver} <<<")
 
-        # Shutdown any existing Bazel server to avoid conflicts
-        subprocess.run(['bazel', 'shutdown', *DEFAULT_BAZEL_OUTPUT_FLAGS])
-
-        # Set the bazel version using bazelisk via USE_BAZEL_VERSION env var
-        env = os.environ.copy()
-        env['USE_BAZEL_VERSION'] = bazel_ver
+        # Every Bazel invocation, including shutdown, must use the requested
+        # Bazelisk version. Otherwise shutdown can start the repository's
+        # default/latest Bazel before the actual build switches versions.
+        env = create_bazel_environment(bazel_ver)
+        shutdown_bazel(env)
 
         for task_name, task_config in tasks.items():
           if not isinstance(task_config, dict):
@@ -455,19 +515,20 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
             if build_flags:
               cmd.extend(build_flags)
 
-            # 去掉 capture_output=True，允许实时将输出打印到控制台
-            result = subprocess.run(
-              cmd,
-              cwd=test_dir,
-              env=env
-            )
+            result = run_bazel_command(cmd, test_dir, env)
 
             if result.returncode != 0:
-              print(f"    FAILED: (See Bazel output above for details)")
-              failed.append(f"{module_name}@{version}: {target} (Bazel {bazel_ver})")
+              errors = extract_bazel_errors(result.stdout)
+              print(f"    FAILED: {errors[0] if errors else 'Bazel command failed'}")
+              label = (f"{module_name}@{version}: task={task_name}, target={target}, "
+                       f"platform={platform}, Bazel={bazel_ver}")
+              failed.append(label)
+              bazel_failures.append((label, errors))
             else:
               print(f"    SUCCESS")
-              passed.append(f"{module_name}@{version}: {target} (Bazel {bazel_ver})")
+              passed.append(
+                f"{module_name}@{version}: task={task_name}, target={target}, "
+                f"platform={platform}, Bazel={bazel_ver}")
 
           # Run test targets
           for target in test_targets:
@@ -494,19 +555,20 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
             if test_flags:
               cmd.extend(test_flags)
 
-            # 去掉 capture_output=True，允许实时将输出打印到控制台
-            result = subprocess.run(
-              cmd,
-              cwd=test_dir,
-              env=env
-            )
+            result = run_bazel_command(cmd, test_dir, env)
 
             if result.returncode != 0:
-              print(f"    FAILED: (See Bazel output above for details)")
-              failed.append(f"{module_name}@{version}: {target} (Bazel {bazel_ver})")
+              errors = extract_bazel_errors(result.stdout)
+              print(f"    FAILED: {errors[0] if errors else 'Bazel command failed'}")
+              label = (f"{module_name}@{version}: task={task_name}, target={target}, "
+                       f"platform={platform}, Bazel={bazel_ver}")
+              failed.append(label)
+              bazel_failures.append((label, errors))
             else:
               print(f"    SUCCESS")
-              passed.append(f"{module_name}@{version}: {target} (Bazel {bazel_ver})")
+              passed.append(
+                f"{module_name}@{version}: task={task_name}, target={target}, "
+                f"platform={platform}, Bazel={bazel_ver}")
 
           shutil.rmtree(test_dir, ignore_errors=True)
 
@@ -529,6 +591,12 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
     print(f"\n[FAIL] Failed ({len(failed)}):")
     for f in failed:
       print(f"  - {f}")
+    if bazel_failures:
+      print("\n[ERROR] Bazel diagnostics:")
+      for label, errors in bazel_failures:
+        print(f"  {label}")
+        for error in errors:
+          print(f"    {error}")
     return 1
   else:
     print(f"\n[PASS] All tests passed!")

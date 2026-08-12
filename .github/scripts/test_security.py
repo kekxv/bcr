@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -16,9 +17,12 @@ from presubmit import PresubmitChecker, tasks_define_platforms, validate_public_
 from registry import resolve_within, validate_module_name, validate_version_name
 from run_bazel_tests import (
     DEFAULT_BAZEL_OUTPUT_FLAGS,
+    create_bazel_environment,
+    extract_bazel_errors,
     get_presubmit_platforms as get_run_platforms,
     get_task_platforms,
     should_run_for_platform,
+    shutdown_bazel,
     validate_bazel_flags,
     validate_target,
 )
@@ -99,7 +103,32 @@ class RenderingAndBazelTests(unittest.TestCase):
     def test_default_bazel_output_suppresses_low_severity_events(self):
         self.assertEqual(
             DEFAULT_BAZEL_OUTPUT_FLAGS,
-            ('--ui_event_filters=-debug,-info,-progress',),
+            ('--noshow_progress', '--ui_event_filters=-debug,-info,-progress'),
+        )
+
+    def test_extracts_concise_bazel_errors(self):
+        output = (
+            'Computing main repo mapping:\n'
+            'Analyzing: 18 targets\n'
+            'ERROR: build failed\n'
+            'file.cpp(10): error C2338: add /utf-8\n'
+            'ERROR: build failed\n'
+        )
+        self.assertEqual(
+            extract_bazel_errors(output),
+            ['ERROR: build failed', 'file.cpp(10): error C2338: add /utf-8'],
+        )
+
+    @mock.patch('run_bazel_tests.subprocess.run')
+    def test_shutdown_uses_requested_bazelisk_version(self, run):
+        env = create_bazel_environment('8.x')
+
+        shutdown_bazel(env)
+
+        self.assertEqual(env['USE_BAZEL_VERSION'], '8.x')
+        run.assert_called_once_with(
+            ['bazel', 'shutdown', *DEFAULT_BAZEL_OUTPUT_FLAGS],
+            env=env,
         )
 
 
