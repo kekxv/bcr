@@ -70,13 +70,26 @@ def get_platforms_from_presubmit(presubmit_path: Path) -> List[str]:
             tasks = config.get('tasks', {})
             if not isinstance(tasks, dict):
                 return DEFAULT_PLATFORMS
-            for task_name, task_config in tasks.items():
-                if isinstance(task_config, dict) and 'platform' in task_config:
-                    task_platform = task_config['platform']
+            has_unrestricted_task = False
+            for task_config in tasks.values():
+                if not isinstance(task_config, dict):
+                    continue
+                if 'platforms' in task_config:
+                    task_platforms = task_config['platforms']
+                    if not isinstance(task_platforms, list) or not all(
+                            isinstance(item, str) for item in task_platforms):
+                        return DEFAULT_PLATFORMS
+                    platforms.extend(task_platforms)
+                else:
+                    task_platform = task_config.get('platform')
                     if isinstance(task_platform, str) and not task_platform.startswith('${'):
                         platforms.append(task_platform)
+                    else:
+                        has_unrestricted_task = True
+            if has_unrestricted_task:
+                return DEFAULT_PLATFORMS
         
-        return platforms if platforms else DEFAULT_PLATFORMS
+        return list(dict.fromkeys(platforms)) if platforms else DEFAULT_PLATFORMS
         
     except (yaml.YAMLError, IOError):
         return DEFAULT_PLATFORMS

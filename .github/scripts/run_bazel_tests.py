@@ -29,6 +29,7 @@ DENIED_BAZEL_FLAG_PREFIXES = (
 DEFAULT_BAZEL_OUTPUT_FLAGS = (
   '--ui_event_filters=-debug,-info,-progress',
 )
+DEFAULT_PLATFORMS = ('ubuntu', 'macos', 'windows')
 
 
 def validate_bazel_version(value: str) -> str:
@@ -75,6 +76,7 @@ def get_github_runner_platform(platform_name: str) -> str:
     'ubuntu': 'linux',
     'ubuntu2004': 'linux',
     'ubuntu2204': 'linux',
+    'ubuntu2404': 'linux',
     'ubuntu2404_arm64': 'linux',
     'ubuntu_arm64': 'linux',
     'linux_arm64': 'linux',
@@ -98,6 +100,49 @@ def should_run_for_platform(presubmit_platforms: list, current_platform: str) ->
     if runner == current_runner:
       return True
   return False
+
+
+def get_task_platforms(task_config: dict):
+  """Return a task's concrete platform restrictions, or None if unrestricted."""
+  if 'platforms' in task_config:
+    platforms = task_config['platforms']
+    if not isinstance(platforms, list) or not all(isinstance(item, str) for item in platforms):
+      raise ValueError("task.platforms must be a list of strings")
+    return platforms
+
+  # Keep supporting the existing BCR task-level `platform` field. Template
+  # expressions refer to the matrix platform and therefore add no restriction.
+  platform = task_config.get('platform')
+  if platform is None or (isinstance(platform, str) and platform.startswith('${')):
+    return None
+  if not isinstance(platform, str):
+    raise ValueError("task.platform must be a string")
+  return [platform]
+
+
+def get_presubmit_platforms(matrix: dict, tasks: dict) -> list[str]:
+  """Resolve the platforms needed by a presubmit configuration."""
+  if 'platform' in matrix:
+    platforms = matrix['platform']
+    if not isinstance(platforms, list):
+      raise ValueError("matrix.platform must be a list")
+    if platforms:
+      return platforms
+
+  task_platforms = []
+  has_unrestricted_task = False
+  for task_config in tasks.values():
+    if not isinstance(task_config, dict):
+      continue
+    platforms = get_task_platforms(task_config)
+    if platforms is None:
+      has_unrestricted_task = True
+    else:
+      task_platforms.extend(platforms)
+
+  if has_unrestricted_task or not task_platforms:
+    return list(DEFAULT_PLATFORMS)
+  return list(dict.fromkeys(task_platforms))
 
 
 def _as_list(value):
@@ -282,9 +327,10 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
         failed.append(f"{module_name}@{version}: invalid presubmit.yml")
         continue
 
-      presubmit_platforms = matrix.get('platform', ['ubuntu'])
-      if not isinstance(presubmit_platforms, list):
-        print("Invalid test configuration: matrix.platform must be a list")
+      try:
+        presubmit_platforms = get_presubmit_platforms(matrix, tasks)
+      except ValueError as e:
+        print(f"Invalid test configuration: {e}")
         failed.append(f"{module_name}@{version}: invalid platform matrix")
         continue
 
@@ -323,6 +369,15 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
           if not isinstance(task_config, dict):
             print(f"  Invalid test configuration: task {task_name!r} must be a YAML mapping")
             failed.append(f"{module_name}@{version}: {task_name} (invalid task)")
+            continue
+          try:
+            task_platforms = get_task_platforms(task_config)
+          except ValueError as e:
+            print(f"  Invalid test configuration: {e}")
+            failed.append(f"{module_name}@{version}: {task_name} (invalid platforms)")
+            continue
+          if task_platforms is not None and not should_run_for_platform(task_platforms, platform):
+            print(f"  [SKIP] Task '{task_name}' does not run on platform '{platform}'")
             continue
           build_targets = task_config.get('build_targets', [])
           test_targets = task_config.get('test_targets', [])

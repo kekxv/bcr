@@ -68,13 +68,26 @@ def get_presubmit_platforms(presubmit_path: Path) -> List[str]:
             tasks = config.get('tasks', {})
             if not isinstance(tasks, dict):
                 return ['ubuntu', 'macos', 'windows']
-            for task_name, task_config in tasks.items():
-                if isinstance(task_config, dict) and 'platform' in task_config:
-                    task_platform = task_config['platform']
+            has_unrestricted_task = False
+            for task_config in tasks.values():
+                if not isinstance(task_config, dict):
+                    continue
+                if 'platforms' in task_config:
+                    task_platforms = task_config['platforms']
+                    if not isinstance(task_platforms, list) or not all(
+                            isinstance(item, str) for item in task_platforms):
+                        return ['ubuntu', 'macos', 'windows']
+                    platforms.extend(task_platforms)
+                else:
+                    task_platform = task_config.get('platform')
                     if isinstance(task_platform, str) and not task_platform.startswith('${'):
                         platforms.append(task_platform)
+                    else:
+                        has_unrestricted_task = True
+            if has_unrestricted_task:
+                return ['ubuntu', 'macos', 'windows']
         
-        return platforms if platforms else ['ubuntu', 'macos', 'windows']
+        return list(dict.fromkeys(platforms)) if platforms else ['ubuntu', 'macos', 'windows']
         
     except (yaml.YAMLError, IOError):
         return ['ubuntu', 'macos', 'windows']

@@ -14,7 +14,14 @@ from check_platform_needed import get_presubmit_platforms
 from get_test_platforms import DEFAULT_PLATFORMS, get_platforms_from_presubmit
 from presubmit import validate_public_https_url
 from registry import resolve_within, validate_module_name, validate_version_name
-from run_bazel_tests import DEFAULT_BAZEL_OUTPUT_FLAGS, validate_bazel_flags, validate_target
+from run_bazel_tests import (
+    DEFAULT_BAZEL_OUTPUT_FLAGS,
+    get_presubmit_platforms as get_run_platforms,
+    get_task_platforms,
+    should_run_for_platform,
+    validate_bazel_flags,
+    validate_target,
+)
 
 
 class SafePathTests(unittest.TestCase):
@@ -76,6 +83,14 @@ class RenderingAndBazelTests(unittest.TestCase):
             with self.subTest(flag=flag), self.assertRaises(ValueError):
                 validate_bazel_flags([flag], 'build_flags')
         self.assertEqual(validate_bazel_flags(['--verbose_failures'], 'build_flags'), ['--verbose_failures'])
+        self.assertEqual(
+            validate_bazel_flags(['--cxxopt=-std=c++17'], 'build_flags'),
+            ['--cxxopt=-std=c++17'],
+        )
+        self.assertEqual(
+            validate_bazel_flags(['--cxxopt=/std:c++17'], 'build_flags'),
+            ['--cxxopt=/std:c++17'],
+        )
 
     def test_rejects_flag_as_target(self):
         with self.assertRaises(ValueError):
@@ -97,6 +112,38 @@ class PlatformConfigTests(unittest.TestCase):
                     presubmit.write_text(content)
                     self.assertEqual(get_presubmit_platforms(presubmit), DEFAULT_PLATFORMS)
                     self.assertEqual(get_platforms_from_presubmit(presubmit), DEFAULT_PLATFORMS)
+
+    def test_task_platform_lists_are_discovered_and_filtered(self):
+        tasks = {
+            'verify_targets': {'platforms': ['ubuntu2404', 'macos']},
+            'verify_targets_windows': {'platforms': ['windows']},
+        }
+        self.assertEqual(
+            get_run_platforms({}, tasks),
+            ['ubuntu2404', 'macos', 'windows'],
+        )
+        self.assertTrue(should_run_for_platform(
+            get_task_platforms(tasks['verify_targets']), 'ubuntu2404'))
+        self.assertFalse(should_run_for_platform(
+            get_task_platforms(tasks['verify_targets']), 'windows'))
+
+        with tempfile.TemporaryDirectory() as directory:
+            presubmit = Path(directory) / 'presubmit.yml'
+            presubmit.write_text(
+                'tasks:\n'
+                '  verify_targets:\n'
+                '    platforms: [ubuntu2404, macos]\n'
+                '  verify_targets_windows:\n'
+                '    platforms: [windows]\n'
+            )
+            expected = ['ubuntu2404', 'macos', 'windows']
+            self.assertEqual(get_presubmit_platforms(presubmit), expected)
+            self.assertEqual(get_platforms_from_presubmit(presubmit), expected)
+
+    def test_task_platforms_must_be_a_string_list(self):
+        for value in ('windows', [1]):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                get_task_platforms({'platforms': value})
 
 
 class NetworkTests(unittest.TestCase):
