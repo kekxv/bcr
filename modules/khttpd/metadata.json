@@ -11,7 +11,8 @@
     "github:ClangTools/khttpd"
   ],
   "versions": [
-    "0.1.0"
+    "0.1.0",
+    "0.3.0"
   ],
   "yanked_versions": {}
 }
