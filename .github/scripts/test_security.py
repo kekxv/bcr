@@ -12,7 +12,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from generate_diff import code_block, get_recursive_files
 from check_platform_needed import get_presubmit_platforms
 from get_test_platforms import DEFAULT_PLATFORMS, get_platforms_from_presubmit
-from presubmit import validate_public_https_url
+from presubmit import PresubmitChecker, tasks_define_platforms, validate_public_https_url
 from registry import resolve_within, validate_module_name, validate_version_name
 from run_bazel_tests import (
     DEFAULT_BAZEL_OUTPUT_FLAGS,
@@ -144,6 +144,47 @@ class PlatformConfigTests(unittest.TestCase):
         for value in ('windows', [1]):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 get_task_platforms({'platforms': value})
+
+    def test_presubmit_accepts_platforms_in_every_task(self):
+        tasks = {
+            'verify_targets': {'platforms': ['ubuntu2404', 'macos']},
+            'verify_targets_windows': {'platforms': ['windows']},
+        }
+        self.assertTrue(tasks_define_platforms(tasks))
+
+        class FakeRegistry:
+            def get_presubmit(self, module_name, version):
+                return {'matrix': {'bazel': ['7.x', '8.x']}, 'tasks': tasks}
+
+            def get_previous_version(self, module_name, version):
+                return None
+
+        checker = PresubmitChecker('.')
+        checker.registry = FakeRegistry()
+        results = checker.check_presubmit_yaml('khttpd', '0.3.0')
+        self.assertFalse(any(
+            result.name == 'presubmit-yaml/matrix-platform' and not result.passed
+            for result in results
+        ))
+        self.assertTrue(any(
+            result.name == 'presubmit-yaml' and result.passed
+            for result in results
+        ))
+
+    def test_presubmit_rejects_incomplete_task_platforms(self):
+        invalid_tasks = (
+            {},
+            {'verify_targets': {}},
+            {'verify_targets': {'platforms': []}},
+            {'verify_targets': {'platforms': 'windows'}},
+            {
+                'verify_targets': {'platforms': ['ubuntu2404']},
+                'verify_targets_windows': {},
+            },
+        )
+        for tasks in invalid_tasks:
+            with self.subTest(tasks=tasks):
+                self.assertFalse(tasks_define_platforms(tasks))
 
 
 class NetworkTests(unittest.TestCase):
