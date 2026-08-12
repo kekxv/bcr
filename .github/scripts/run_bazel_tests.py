@@ -24,6 +24,11 @@ DENIED_BAZEL_FLAG_PREFIXES = (
   '--remote_cache_header', '--remote_exec_header', '--credential_helper',
   '--bazelrc', '--config',
 )
+# Keep warnings, errors, and their raw diagnostic streams while suppressing
+# Bazel's informational/debug/progress UI events by default.
+DEFAULT_BAZEL_OUTPUT_FLAGS = (
+  '--ui_event_filters=-debug,-info,-progress',
+)
 
 
 def validate_bazel_version(value: str) -> str:
@@ -54,7 +59,7 @@ def validate_target(target: str) -> str:
 
 def parse_args():
   parser = argparse.ArgumentParser(description='Run Bazel tests for BCR modules')
-  parser.add_argument('--platform', required=True, help='Platform name (e.g., ubuntu2404, macos, windows, linux_arm64)')
+  parser.add_argument('--platform', required=True, help='Platform name (e.g., ubuntu, macos, windows, linux_arm64)')
   parser.add_argument('--changes-json', required=True, help='JSON file with changed modules')
   return parser.parse_args()
 
@@ -67,7 +72,7 @@ def get_github_runner_platform(platform_name: str) -> str:
     'debian11': 'linux',
     'debian12': 'linux',
     # Ubuntu variants
-    'ubuntu2404': 'linux',
+    'ubuntu': 'linux',
     'ubuntu2004': 'linux',
     'ubuntu2204': 'linux',
     'ubuntu2404_arm64': 'linux',
@@ -265,8 +270,23 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
       with open(presubmit_path) as f:
         config = yaml.safe_load(f)
 
+      if not isinstance(config, dict):
+        print(f"Invalid test configuration: presubmit.yml must contain a YAML mapping")
+        failed.append(f"{module_name}@{version}: invalid presubmit.yml")
+        continue
+
       matrix = config.get('matrix', {})
-      presubmit_platforms = matrix.get('platform', ['ubuntu2404'])
+      tasks = config.get('tasks', {})
+      if not isinstance(matrix, dict) or not isinstance(tasks, dict):
+        print("Invalid test configuration: 'matrix' and 'tasks' must be YAML mappings")
+        failed.append(f"{module_name}@{version}: invalid presubmit.yml")
+        continue
+
+      presubmit_platforms = matrix.get('platform', ['ubuntu'])
+      if not isinstance(presubmit_platforms, list):
+        print("Invalid test configuration: matrix.platform must be a list")
+        failed.append(f"{module_name}@{version}: invalid platform matrix")
+        continue
 
       # Check if current platform is in the matrix
       if not should_run_for_platform(presubmit_platforms, platform):
@@ -278,7 +298,10 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
 
       # Get all bazel versions from presubmit.yml and test each one
       bazel_versions = matrix.get('bazel', ['7.x'])
-      tasks = config.get('tasks', {})
+      if not isinstance(bazel_versions, list):
+        print("Invalid test configuration: matrix.bazel must be a list")
+        failed.append(f"{module_name}@{version}: invalid Bazel matrix")
+        continue
 
       for bazel_ver in bazel_versions:
         try:
@@ -290,13 +313,17 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
         print(f"\n>>> Testing with Bazel version: {bazel_ver} <<<")
 
         # Shutdown any existing Bazel server to avoid conflicts
-        subprocess.run(['bazel', 'shutdown'])
+        subprocess.run(['bazel', 'shutdown', *DEFAULT_BAZEL_OUTPUT_FLAGS])
 
         # Set the bazel version using bazelisk via USE_BAZEL_VERSION env var
         env = os.environ.copy()
         env['USE_BAZEL_VERSION'] = bazel_ver
 
         for task_name, task_config in tasks.items():
+          if not isinstance(task_config, dict):
+            print(f"  Invalid test configuration: task {task_name!r} must be a YAML mapping")
+            failed.append(f"{module_name}@{version}: {task_name} (invalid task)")
+            continue
           build_targets = task_config.get('build_targets', [])
           test_targets = task_config.get('test_targets', [])
 
@@ -366,7 +393,8 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
             cmd = ['bazel', 'build', actual_target,
                    '--registry=' + registry_url,
                    '--registry=https://bcr.bazel.build',
-                   '--enable_bzlmod']
+                   '--enable_bzlmod',
+                   *DEFAULT_BAZEL_OUTPUT_FLAGS]
 
             # 附加 build args
             if build_flags:
@@ -401,7 +429,8 @@ def run_bazel_tests(platform: str, changes_json_path: str = None, registry_path:
             cmd = ['bazel', 'test', actual_target,
                    '--registry=' + registry_url,
                    '--registry=https://bcr.bazel.build',
-                   '--enable_bzlmod']
+                   '--enable_bzlmod',
+                   *DEFAULT_BAZEL_OUTPUT_FLAGS]
 
             # 测试通常也需要 build args 来进行编译
             if build_flags:

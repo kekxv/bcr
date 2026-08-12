@@ -152,7 +152,7 @@ def create_presubmit_yaml(module_name: str) -> str:
     - 7.x
     - 8.x
   platform:
-    - ubuntu2404
+    - ubuntu
     - macos
     - windows
 

@@ -43,7 +43,7 @@ PLATFORM_TO_RUNNER = {
 }
 
 # Default platforms if no presubmit.yml found
-DEFAULT_PLATFORMS = ['ubuntu2404', 'macos', 'windows']
+DEFAULT_PLATFORMS = ['ubuntu', 'macos', 'windows']
 
 
 def get_platforms_from_presubmit(presubmit_path: Path) -> List[str]:
@@ -54,15 +54,24 @@ def get_platforms_from_presubmit(presubmit_path: Path) -> List[str]:
     try:
         with open(presubmit_path, 'r') as f:
             config = yaml.safe_load(f)
+
+        if not isinstance(config, dict):
+            return DEFAULT_PLATFORMS
         
         matrix = config.get('matrix', {})
+        if not isinstance(matrix, dict):
+            return DEFAULT_PLATFORMS
         platforms = matrix.get('platform', [])
+        if not isinstance(platforms, list):
+            return DEFAULT_PLATFORMS
         
         if not platforms:
             # Check tasks for platform definitions
             tasks = config.get('tasks', {})
+            if not isinstance(tasks, dict):
+                return DEFAULT_PLATFORMS
             for task_name, task_config in tasks.items():
-                if 'platform' in task_config:
+                if isinstance(task_config, dict) and 'platform' in task_config:
                     task_platform = task_config['platform']
                     if isinstance(task_platform, str) and not task_platform.startswith('${'):
                         platforms.append(task_platform)

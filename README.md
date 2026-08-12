@@ -174,7 +174,7 @@ Basic example:
 
 ```yaml
 matrix:
-  platform: [ubuntu2404, macos, windows]
+  platform: [ubuntu, macos, windows]
   bazel: [7.x, 8.x]
 
 tasks:
@@ -368,7 +368,7 @@ build --registry=https://your-org.github.io/bcr-custom-registry
 
 ```yaml
 matrix:
-  platform: [ubuntu2404, macos, windows]
+  platform: [ubuntu, macos, windows]
   bazel: [7.x, 8.x]
 
 tasks:
