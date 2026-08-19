@@ -7,6 +7,8 @@ on:
       - 'modules/**'
       - '.github/scripts/**'
       - '.github/workflows/presubmit.yml'
+      - 'pyproject.toml'
+      - 'uv.lock'
   workflow_dispatch:  # 允许手动触发
 
 # 定义标签常量
@@ -40,16 +42,13 @@ jobs:
           # 确保行尾符不被转换，保持 LF 以匹配 source.json 中的校验和
           autocrlf: false
 
-      - name: Setup Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           python-version: '3.11'
+          enable-cache: true
 
-      - name: Install dependencies
-        run: |
-          pip install --requirement .github/requirements-ci.txt
-
-      - name: Check Bazel run label
+      - name: Authorize Bazel run
         id: authorize-run
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
@@ -57,23 +56,116 @@ jobs:
             // Treat the label as a persistent opt-in. This allows later
             // synchronize/reopened events to run tests without requiring the
             // label to be removed and added again.
-            const labels = context.payload.pull_request?.labels ?? [];
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.setOutput('authorized', 'false');
+              return;
+            }
+
+            const labels = pr.labels ?? [];
             const hasTriggerLabel = labels.some(
               label => label.name === process.env.TRIGGER_LABEL
             );
-            core.setOutput('authorized', hasTriggerLabel ? 'true' : 'false');
+            if (hasTriggerLabel) {
+              core.setOutput('authorized', 'true');
+              return;
+            }
+
+            // The repository owner is trusted without a label. Compare immutable
+            // numeric IDs instead of login names.
+            const authorId = pr.user?.id;
+            const repositoryOwnerId = context.payload.repository?.owner?.id;
+            if (Number.isSafeInteger(authorId) && authorId === repositoryOwnerId) {
+              core.notice('Bazel run authorized for the repository owner.');
+              core.setOutput('authorized', 'true');
+              return;
+            }
+
+            // Determine affected modules from GitHub's PR file list, not from a
+            // script in the PR checkout. Include both sides of renames so moving
+            // a file between modules requires authorization for both modules.
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+
+            // GitHub returns at most 3000 PR files. Fail closed if the response is
+            // incomplete instead of authorizing from only a subset of the diff.
+            if (files.length !== pr.changed_files) {
+              core.warning(
+                `Cannot safely authorize: received ${files.length} of ${pr.changed_files} changed files.`
+              );
+              core.setOutput('authorized', 'false');
+              return;
+            }
+
+            const changedModules = new Set();
+            const addModule = path => {
+              const match = path?.match(/^modules\/([^/]+)\//);
+              if (match) changedModules.add(match[1]);
+            };
+            for (const file of files) {
+              addModule(file.filename);
+              addModule(file.previous_filename);
+            }
+
+            // A maintainer must be listed by github_user_id in the base commit's
+            // metadata for every affected module. Never trust metadata supplied
+            // by the PR, and never fall back to a GitHub login name.
+            let authorizedForAllModules = changedModules.size > 0;
+            for (const moduleName of changedModules) {
+              let metadata;
+              try {
+                const response = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: `modules/${moduleName}/metadata.json`,
+                  ref: pr.base.sha,
+                });
+                if (Array.isArray(response.data) || response.data.type !== 'file') {
+                  authorizedForAllModules = false;
+                  break;
+                }
+                metadata = JSON.parse(
+                  Buffer.from(response.data.content, response.data.encoding).toString('utf8')
+                );
+              } catch (error) {
+                // This also deliberately rejects new modules, since they have no
+                // trusted metadata in the base commit.
+                core.notice(`No trusted maintainer metadata for module '${moduleName}'.`);
+                authorizedForAllModules = false;
+                break;
+              }
+
+              const isMaintainer = Array.isArray(metadata.maintainers) &&
+                metadata.maintainers.some(maintainer =>
+                  Number.isSafeInteger(maintainer.github_user_id) &&
+                  maintainer.github_user_id === authorId
+                );
+              if (!isMaintainer) {
+                authorizedForAllModules = false;
+                break;
+              }
+            }
+
+            if (authorizedForAllModules) {
+              core.notice('Bazel run authorized for a maintainer of every affected module.');
+            }
+            core.setOutput('authorized', authorizedForAllModules ? 'true' : 'false');
 
       - name: Detect changed modules
         id: detect
         run: |
-          python .github/scripts/detect_changes.py --base-ref ${{ github.event.pull_request.base.sha }}
-          python .github/scripts/detect_changes.py --base-ref ${{ github.event.pull_request.base.sha }} --output changes.json
+          uv run --frozen --group ci python .github/scripts/detect_changes.py --base-ref ${{ github.event.pull_request.base.sha }}
+          uv run --frozen --group ci python .github/scripts/detect_changes.py --base-ref ${{ github.event.pull_request.base.sha }} --output changes.json
           # Compact JSON to single line to avoid multi-line output issues
           echo "changes_json=$(jq -c . changes.json)" >> "$GITHUB_OUTPUT"
       - name: Get test platforms from presubmit.yml
         id: platforms
         run: |
-          python .github/scripts/get_test_platforms.py --changes-json changes.json --output platforms.json
+          uv run --frozen --group ci python .github/scripts/get_test_platforms.py --changes-json changes.json --output platforms.json
           echo "matrix=$(jq -c . platforms.json)" >> "$GITHUB_OUTPUT"
           # Check if matrix has any items
           if [ "$(jq '.include | length' platforms.json)" -gt 0 ]; then
@@ -98,7 +190,7 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: |
           # Run presubmit and capture output
-          python .github/scripts/presubmit.py \
+          uv run --frozen --group ci python .github/scripts/presubmit.py \
             --pr-number "$PR_NUMBER" \
             --pr-labels "$PR_LABELS" \
             --base-ref "$BASE_REF" \
@@ -216,14 +308,11 @@ jobs:
           autocrlf: false
           persist-credentials: false
 
-      - name: Setup Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          pip install --requirement .github/requirements-ci.txt
+          enable-cache: true
 
       - name: Setup Bazel
         uses: bazel-contrib/setup-bazel@e403ad507104847c3539436f64a9e9eecc73eeec # v0.8.5
@@ -239,12 +328,12 @@ jobs:
       - name: Check if platform is needed
         id: check-platform
         run: |
-          python .github/scripts/check_platform_needed.py --platform ${{ matrix.platform }} --changes-json changes.json
+          uv run --frozen --group ci python .github/scripts/check_platform_needed.py --platform ${{ matrix.platform }} --changes-json changes.json
 
       - name: Run Bazel tests for ${{ matrix.platform }}
         if: steps.check-platform.outputs.needed == 'true'
         run: |
-          python .github/scripts/run_bazel_tests.py --platform ${{ matrix.platform }} --changes-json changes.json
+          uv run --frozen --group ci python .github/scripts/run_bazel_tests.py --platform ${{ matrix.platform }} --changes-json changes.json
 
   # Bazel test result check - 用于设置为 Required status check
   bazel-test-result:

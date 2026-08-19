@@ -242,8 +242,28 @@ class WorkflowTests(unittest.TestCase):
         workflow = (SCRIPT_DIR.parent / 'workflows' / 'presubmit.yml').read_text()
         authorize_step = workflow.split('id: authorize-run', 1)[1].split(
             '- name: Detect changed modules', 1)[0]
-        self.assertIn('context.payload.pull_request?.labels', authorize_step)
+        self.assertIn('pr.labels ?? []', authorize_step)
         self.assertNotIn("context.payload.action === 'labeled'", authorize_step)
+
+    def test_presubmit_maintainer_authorization_uses_trusted_user_ids(self):
+        workflow = (SCRIPT_DIR.parent / 'workflows' / 'presubmit.yml').read_text()
+        authorize_step = workflow.split('id: authorize-run', 1)[1].split(
+            '- name: Detect changed modules', 1)[0]
+
+        # Changed modules come from the API and metadata comes from the immutable
+        # base SHA, so the PR cannot authorize itself by editing either helper
+        # scripts or metadata.json.
+        self.assertIn('github.rest.pulls.listFiles', authorize_step)
+        self.assertIn('file.previous_filename', authorize_step)
+        self.assertIn('files.length !== pr.changed_files', authorize_step)
+        self.assertIn('github.rest.repos.getContent', authorize_step)
+        self.assertIn('ref: pr.base.sha', authorize_step)
+
+        # Maintainer authorization is all-modules and ID-only. In particular,
+        # there must be no fallback to the mutable GitHub login field.
+        self.assertIn('authorizedForAllModules', authorize_step)
+        self.assertIn('maintainer.github_user_id === authorId', authorize_step)
+        self.assertNotRegex(authorize_step, r'maintainer\.github(?!_user_id)')
 
 
 if __name__ == '__main__':

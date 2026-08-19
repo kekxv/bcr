@@ -17,6 +17,7 @@ venv/
 env/
 ENV/
 .venv/
+.uv-cache/
 
 # Local environment and credentials
 .env

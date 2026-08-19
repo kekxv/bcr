@@ -1,4 +1,0 @@
-# Keep CI dependencies reproducible. Update intentionally with security review.
-PyYAML==6.0.3
-requests==2.34.2
-jsonschema==4.26.0
