@@ -265,6 +265,27 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('maintainer.github_user_id === authorId', authorize_step)
         self.assertNotRegex(authorize_step, r'maintainer\.github(?!_user_id)')
 
+    def test_auto_merge_is_bound_to_successful_presubmit_and_tested_sha(self):
+        workflow = (SCRIPT_DIR.parent / 'workflows' /
+                    'presubmit-auto-merge.yml').read_text()
+        self.assertIn("workflows: ['Presubmit Checks']", workflow)
+        self.assertIn("workflow_run.conclusion == 'success'", workflow)
+        self.assertIn("workflow_run.event == 'pull_request'", workflow)
+        self.assertIn("pr.base.ref !== 'main'", workflow)
+        self.assertIn('pr.head.sha !== run.head_sha', workflow)
+        self.assertIn('sha: run.head_sha', workflow)
+        self.assertIn('currentPr.mergeable !== true', workflow)
+
+    def test_auto_merge_uses_trusted_all_module_maintainer_ids(self):
+        workflow = (SCRIPT_DIR.parent / 'workflows' /
+                    'presubmit-auto-merge.yml').read_text()
+        self.assertIn('files.length !== pr.changed_files', workflow)
+        self.assertIn('file.previous_filename', workflow)
+        self.assertIn('changedModules.size > 0', workflow)
+        self.assertIn('ref: pr.base.sha', workflow)
+        self.assertIn('maintainer.github_user_id === authorId', workflow)
+        self.assertNotRegex(workflow, r'maintainer\.github(?!_user_id)')
+
 
 if __name__ == '__main__':
     unittest.main()

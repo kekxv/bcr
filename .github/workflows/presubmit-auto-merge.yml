@@ -1,0 +1,151 @@
+name: Presubmit Auto Merge
+
+on:
+  workflow_run:
+    workflows: ['Presubmit Checks']
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  approve-and-merge:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Verify, approve, and merge eligible PR
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const linkedPullRequests = run.pull_requests ?? [];
+            if (linkedPullRequests.length !== 1) {
+              core.notice(`Expected exactly one linked PR, found ${linkedPullRequests.length}.`);
+              return;
+            }
+
+            const pullNumber = linkedPullRequests[0].number;
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pullNumber,
+            });
+
+            // Bind this privileged workflow to the exact commit that passed the
+            // unprivileged presubmit workflow. A later push must pass on its own.
+            if (pr.state !== 'open' || pr.base.ref !== 'main' || pr.head.sha !== run.head_sha) {
+              core.notice('PR is no longer open against main at the tested head SHA.');
+              return;
+            }
+
+            const authorId = pr.user?.id;
+            const { data: repository } = await github.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            let eligible = Number.isSafeInteger(authorId) &&
+              authorId === repository.owner.id;
+
+            if (!eligible) {
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pullNumber,
+                per_page: 100,
+              });
+              if (files.length !== pr.changed_files) {
+                core.notice(`Received ${files.length} of ${pr.changed_files} changed files.`);
+                return;
+              }
+
+              const changedModules = new Set();
+              const addModule = path => {
+                const match = path?.match(/^modules\/([^/]+)\//);
+                if (match) changedModules.add(match[1]);
+              };
+              for (const file of files) {
+                addModule(file.filename);
+                addModule(file.previous_filename);
+              }
+
+              // Metadata is read from the trusted base commit, never from the PR.
+              eligible = changedModules.size > 0;
+              for (const moduleName of changedModules) {
+                try {
+                  const response = await github.rest.repos.getContent({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    path: `modules/${moduleName}/metadata.json`,
+                    ref: pr.base.sha,
+                  });
+                  if (Array.isArray(response.data) || response.data.type !== 'file') {
+                    eligible = false;
+                    break;
+                  }
+                  const metadata = JSON.parse(
+                    Buffer.from(response.data.content, response.data.encoding).toString('utf8')
+                  );
+                  const isMaintainer = Array.isArray(metadata.maintainers) &&
+                    metadata.maintainers.some(maintainer =>
+                      Number.isSafeInteger(maintainer.github_user_id) &&
+                      maintainer.github_user_id === authorId
+                    );
+                  if (!isMaintainer) {
+                    eligible = false;
+                    break;
+                  }
+                } catch (error) {
+                  core.notice(`Could not read trusted metadata for module '${moduleName}'.`);
+                  eligible = false;
+                  break;
+                }
+              }
+            }
+
+            if (!eligible) {
+              core.notice('PR author is not the repository owner or a maintainer of every changed module.');
+              return;
+            }
+
+            // GitHub can briefly report mergeability as unknown while it computes
+            // the test merge commit. Retry a few times, then fail closed.
+            let currentPr = pr;
+            for (let attempt = 0; attempt < 3 && currentPr.mergeable === null; attempt++) {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              const response = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pullNumber,
+              });
+              currentPr = response.data;
+            }
+            if (currentPr.state !== 'open' || currentPr.base.ref !== 'main' ||
+                currentPr.head.sha !== run.head_sha || currentPr.mergeable !== true) {
+              core.notice('PR is stale, closed, retargeted, or conflicts with the current main branch.');
+              return;
+            }
+
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pullNumber,
+              commit_id: run.head_sha,
+              event: 'APPROVE',
+              body: 'Automatically approved after Presubmit Checks passed.',
+            });
+
+            const merge = await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pullNumber,
+              sha: run.head_sha,
+              merge_method: 'merge',
+            });
+            if (!merge.data.merged) {
+              core.setFailed(`GitHub did not merge PR #${pullNumber}: ${merge.data.message}`);
+              return;
+            }
+            core.notice(`Approved and merged PR #${pullNumber} into main.`);
