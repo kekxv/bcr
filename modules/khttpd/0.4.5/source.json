@@ -1,0 +1,5 @@
+{
+  "url": "https://github.com/ClangTools/khttpd/releases/download/v0.4.5/khttpd-0.4.5.tar.gz",
+  "strip_prefix": "khttpd-0.4.5",
+  "integrity": "sha256-hhCTbs25fePoM9oT55B1TT6rtZ7riojmDqV78MOtm3I="
+}
