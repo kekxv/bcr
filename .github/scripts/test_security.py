@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import yaml
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
@@ -166,6 +168,50 @@ class PlatformConfigTests(unittest.TestCase):
                 '    platforms: [windows]\n'
             )
             expected = ['ubuntu2404', 'macos', 'windows']
+            self.assertEqual(get_presubmit_platforms(presubmit), expected)
+            self.assertEqual(get_platforms_from_presubmit(presubmit), expected)
+
+    def test_custom_platform_matrix_references_are_resolved(self):
+        matrix = {
+            'unix_platform': ['debian13', 'macos_arm64', 'ubuntu2404_arm64'],
+            'windows_platform': ['windows'],
+            'bazel': ['8.x', '9.x'],
+        }
+        tasks = {
+            'verify_unix': {'platform': '${{ unix_platform }}'},
+            'verify_windows': {'platform': '${{ windows_platform }}'},
+        }
+        expected = ['debian13', 'macos_arm64', 'ubuntu2404_arm64', 'windows']
+
+        self.assertEqual(get_run_platforms(matrix, tasks), expected)
+        self.assertEqual(
+            get_task_platforms(tasks['verify_unix'], matrix),
+            matrix['unix_platform'],
+        )
+        self.assertEqual(
+            get_task_platforms({'platform': '${ unix_platform }'}, matrix),
+            matrix['unix_platform'],
+        )
+        self.assertTrue(tasks_define_platforms(tasks, matrix))
+
+        class FakeRegistry:
+            def get_presubmit(self, module_name, version):
+                return {'matrix': matrix, 'tasks': tasks}
+
+            def get_previous_version(self, module_name, version):
+                return None
+
+        checker = PresubmitChecker('.')
+        checker.registry = FakeRegistry()
+        results = checker.check_presubmit_yaml('boost.redis', '1.90.0.bcr.1')
+        self.assertFalse(any(
+            result.name == 'presubmit-yaml/matrix-platform' and not result.passed
+            for result in results
+        ))
+
+        with tempfile.TemporaryDirectory() as directory:
+            presubmit = Path(directory) / 'presubmit.yml'
+            presubmit.write_text(yaml.safe_dump({'matrix': matrix, 'tasks': tasks}))
             self.assertEqual(get_presubmit_platforms(presubmit), expected)
             self.assertEqual(get_platforms_from_presubmit(presubmit), expected)
 

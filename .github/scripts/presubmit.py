@@ -24,6 +24,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
+from presubmit_platforms import get_task_platforms
+
 from registry import RegistryClient, Version, resolve_within, validate_path_component
 
 
@@ -111,18 +113,21 @@ class CheckResult:
         return f"{status} {self.name}: {self.message}"
 
 
-def tasks_define_platforms(tasks: Any) -> bool:
-    """Return whether every task has a non-empty task-level platforms list."""
+def tasks_define_platforms(tasks: Any, matrix: Any = None) -> bool:
+    """Return whether every task resolves to a non-empty platform list."""
+    if not isinstance(tasks, dict) or not tasks:
+        return False
+
+    def defines_platforms(task: Any) -> bool:
+        if not isinstance(task, dict):
+            return False
+        try:
+            return bool(get_task_platforms(task, matrix))
+        except ValueError:
+            return False
+
     return (
-        isinstance(tasks, dict)
-        and bool(tasks)
-        and all(
-            isinstance(task, dict)
-            and isinstance(task.get('platforms'), list)
-            and bool(task['platforms'])
-            and all(isinstance(platform, str) and platform for platform in task['platforms'])
-            for task in tasks.values()
-        )
+        all(defines_platforms(task) for task in tasks.values())
     )
 
 
@@ -648,7 +653,7 @@ class PresubmitChecker:
         if not matrix:
             results.append(CheckResult("presubmit-yaml/matrix", False, "Missing matrix configuration"))
         else:
-            if 'platform' not in matrix and not tasks_define_platforms(tasks):
+            if 'platform' not in matrix and not tasks_define_platforms(tasks, matrix):
                 results.append(CheckResult(
                     "presubmit-yaml/matrix-platform",
                     False,

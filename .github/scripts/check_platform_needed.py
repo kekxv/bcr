@@ -13,6 +13,8 @@ from typing import Dict, List
 
 import yaml
 
+from presubmit_platforms import get_configured_platforms
+
 from registry import resolve_within, validate_path_component
 
 # Platform to (OS, arch) mapping
@@ -21,6 +23,7 @@ PLATFORM_TO_OS_ARCH = {
     'debian10': ('linux', 'x86_64'),
     'debian11': ('linux', 'x86_64'),
     'debian12': ('linux', 'x86_64'),
+    'debian13': ('linux', 'x86_64'),
     # Ubuntu variants (x86_64)
     'ubuntu2404': ('linux', 'x86_64'),
     'ubuntu2004': ('linux', 'x86_64'),
@@ -59,37 +62,11 @@ def get_presubmit_platforms(presubmit_path: Path) -> List[str]:
         matrix = config.get('matrix', {})
         if not isinstance(matrix, dict):
             return ['ubuntu', 'macos', 'windows']
-        platforms = matrix.get('platform', [])
-        if not isinstance(platforms, list):
-            return ['ubuntu', 'macos', 'windows']
+        tasks = config.get('tasks', {})
+        return get_configured_platforms(
+            matrix, tasks, ['ubuntu', 'macos', 'windows'])
         
-        if not platforms:
-            # Check tasks for platform definitions
-            tasks = config.get('tasks', {})
-            if not isinstance(tasks, dict):
-                return ['ubuntu', 'macos', 'windows']
-            has_unrestricted_task = False
-            for task_config in tasks.values():
-                if not isinstance(task_config, dict):
-                    continue
-                if 'platforms' in task_config:
-                    task_platforms = task_config['platforms']
-                    if not isinstance(task_platforms, list) or not all(
-                            isinstance(item, str) for item in task_platforms):
-                        return ['ubuntu', 'macos', 'windows']
-                    platforms.extend(task_platforms)
-                else:
-                    task_platform = task_config.get('platform')
-                    if isinstance(task_platform, str) and not task_platform.startswith('${'):
-                        platforms.append(task_platform)
-                    else:
-                        has_unrestricted_task = True
-            if has_unrestricted_task:
-                return ['ubuntu', 'macos', 'windows']
-        
-        return list(dict.fromkeys(platforms)) if platforms else ['ubuntu', 'macos', 'windows']
-        
-    except (yaml.YAMLError, IOError):
+    except (yaml.YAMLError, IOError, ValueError):
         return ['ubuntu', 'macos', 'windows']
 
 
