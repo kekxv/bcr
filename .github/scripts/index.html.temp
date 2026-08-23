@@ -657,6 +657,16 @@
         elements.summary.textContent = `${modules.length} of ${state.data.modules.length} modules`;
       };
 
+      const resolveRegistryUrl = fallback => {
+        try {
+          const current = new URL('.', window.location.href);
+          if (!['http:', 'https:'].includes(current.protocol)) return fallback;
+          return current.href.replace(/\/$/, '');
+        } catch {
+          return fallback;
+        }
+      };
+
       const hydrate = (data) => {
         state.data = data;
         elements.grid.setAttribute('aria-busy', 'false');
@@ -664,7 +674,7 @@
         document.getElementById('versionCount').textContent = data.stats.versions.toLocaleString();
         document.getElementById('deprecatedCount').textContent = data.stats.deprecated.toLocaleString();
         document.getElementById('githubLink').href = data.repository_url;
-        const command = `common --registry=${data.registry_url}`;
+        const command = `common --registry=${resolveRegistryUrl(data.registry_url)}`;
         document.getElementById('registryCommand').textContent = command;
         document.getElementById('copyRegistry').addEventListener('click', () => copy(`${command}\ncommon --registry=https://bcr.bazel.build`));
         const generated = new Date(data.generated_at);
