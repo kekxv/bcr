@@ -13,6 +13,7 @@ jobs:
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: write
       pull-requests: write
     steps:
@@ -141,4 +142,11 @@ jobs:
               core.setFailed(`GitHub did not merge PR #${pullNumber}: ${merge.data.message}`);
               return;
             }
-            core.notice(`Merged PR #${pullNumber} into main.`);
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'publish.yml',
+              ref: 'main',
+            });
+            core.notice(`Merged PR #${pullNumber} into main and triggered publishing.`);

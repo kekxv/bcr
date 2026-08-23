@@ -9,6 +9,7 @@ on:
       - '.github/workflows/publish.yml'
       - 'pyproject.toml'
       - 'uv.lock'
+  workflow_dispatch:
 
 permissions:
   contents: write
