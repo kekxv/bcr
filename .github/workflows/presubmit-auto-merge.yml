@@ -16,7 +16,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - name: Verify, approve, and merge eligible PR
+      - name: Verify and merge eligible PR
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
@@ -36,8 +36,9 @@ jobs:
 
             // Bind this privileged workflow to the exact commit that passed the
             // unprivileged presubmit workflow. A later push must pass on its own.
-            if (pr.state !== 'open' || pr.base.ref !== 'main' || pr.head.sha !== run.head_sha) {
-              core.notice('PR is no longer open against main at the tested head SHA.');
+            if (pr.state !== 'open' || pr.draft === true ||
+                pr.base.ref !== 'main' || pr.head.sha !== run.head_sha) {
+              core.notice('PR is closed, a draft, retargeted, or no longer at the tested head SHA.');
               return;
             }
 
@@ -122,20 +123,12 @@ jobs:
               });
               currentPr = response.data;
             }
-            if (currentPr.state !== 'open' || currentPr.base.ref !== 'main' ||
+            if (currentPr.state !== 'open' || currentPr.draft === true ||
+                currentPr.base.ref !== 'main' ||
                 currentPr.head.sha !== run.head_sha || currentPr.mergeable !== true) {
-              core.notice('PR is stale, closed, retargeted, or conflicts with the current main branch.');
+              core.notice('PR is stale, closed, a draft, retargeted, or conflicts with the current main branch.');
               return;
             }
-
-            await github.rest.pulls.createReview({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: pullNumber,
-              commit_id: run.head_sha,
-              event: 'APPROVE',
-              body: 'Automatically approved after Presubmit Checks passed.',
-            });
 
             const merge = await github.rest.pulls.merge({
               owner: context.repo.owner,
@@ -148,4 +141,4 @@ jobs:
               core.setFailed(`GitHub did not merge PR #${pullNumber}: ${merge.data.message}`);
               return;
             }
-            core.notice(`Approved and merged PR #${pullNumber} into main.`);
+            core.notice(`Merged PR #${pullNumber} into main.`);
