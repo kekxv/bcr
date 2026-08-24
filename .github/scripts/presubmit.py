@@ -774,12 +774,12 @@ class PresubmitChecker:
                 version_str = f"@{version}" if version else ""
                 lines.append(
                     f"- `{markdown_text(module_name)}{markdown_text(version_str)}`: "
-                    f"**{markdown_text(result.name)}**"
+                    f"**{markdown_text(result.name)}**\n"
                 )
                 if result.message:
-                    lines.append(f"  - {markdown_text(result.message)}")
+                    lines.append(f"  - {markdown_text(result.message)}\n")
                 if result.fixable:
-                    lines.append(f"  - 💡 可通过 `--fix` 参数自动修复")
+                    lines.append(f"  - 💡 可通过 `--fix` 参数自动修复\n")
 
         report = "".join(lines)
 
