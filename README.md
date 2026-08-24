@@ -11,7 +11,7 @@ This repository implements a Bazel Central Registry that can be hosted on GitHub
 
 - Automated presubmit checks for all module submissions
 - GitHub Actions workflows for validation and publishing
-- Support for skip-check comments (e.g., `@bcr skip_check url-stability-check`)
+- Support for skip-check comments (e.g., `bcr skip_check url-stability-check`)
 - Automatic module diff generation between versions
 - JSON Schema validation for metadata files
 
@@ -135,7 +135,7 @@ build --registry=https://your-org.github.io/bcr-custom-registry
 You can skip specific presubmit checks by commenting on the PR:
 
 ```
-@bcr skip_check url-stability-check
+bcr skip_check url-stability-check
 ```
 
 Valid skip options:
@@ -329,7 +329,7 @@ build --registry=https://your-org.github.io/bcr-custom-registry
 可以在 PR 评论中跳过特定检查：
 
 ```
-@bcr skip_check url-stability-check
+bcr skip_check url-stability-check
 ```
 
 支持的跳过选项：

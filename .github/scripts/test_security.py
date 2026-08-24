@@ -277,6 +277,12 @@ class WorkflowTests(unittest.TestCase):
         allowed = workflow.split('const allowedChecks', 1)[1].split(']);', 1)[0]
         self.assertNotIn('presubmit-auto-run', allowed)
 
+    def test_skip_workflow_uses_plain_command_and_url_stability_label(self):
+        workflow = (SCRIPT_DIR.parent / 'workflows' / 'skip_check.yml').read_text()
+        self.assertIn("startsWith(github.event.comment.body, 'bcr skip_check')", workflow)
+        self.assertNotIn('@bcr', workflow)
+        self.assertIn("? 'skip-url-stability'", workflow)
+
     def test_bazel_job_has_no_token_environment(self):
         workflow = (SCRIPT_DIR.parent / 'workflows' / 'presubmit.yml').read_text()
         bazel_job = workflow.split('  bazel-test:', 1)[1].split('  bazel-test-result:', 1)[0]
