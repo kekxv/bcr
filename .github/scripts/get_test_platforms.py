@@ -13,6 +13,8 @@ from typing import Dict, List, Set
 
 import yaml
 
+from presubmit_platforms import get_configured_platforms
+
 from registry import resolve_within, validate_path_component
 
 # BCR platform to GitHub Actions runner mapping
@@ -21,6 +23,7 @@ PLATFORM_TO_RUNNER = {
     'debian10': 'ubuntu-latest',
     'debian11': 'ubuntu-latest',
     'debian12': 'ubuntu-latest',
+    'debian13': 'ubuntu-latest',
     
     # Ubuntu variants
     'ubuntu2004': 'ubuntu-latest',
@@ -61,37 +64,10 @@ def get_platforms_from_presubmit(presubmit_path: Path) -> List[str]:
         matrix = config.get('matrix', {})
         if not isinstance(matrix, dict):
             return DEFAULT_PLATFORMS
-        platforms = matrix.get('platform', [])
-        if not isinstance(platforms, list):
-            return DEFAULT_PLATFORMS
+        tasks = config.get('tasks', {})
+        return get_configured_platforms(matrix, tasks, DEFAULT_PLATFORMS)
         
-        if not platforms:
-            # Check tasks for platform definitions
-            tasks = config.get('tasks', {})
-            if not isinstance(tasks, dict):
-                return DEFAULT_PLATFORMS
-            has_unrestricted_task = False
-            for task_config in tasks.values():
-                if not isinstance(task_config, dict):
-                    continue
-                if 'platforms' in task_config:
-                    task_platforms = task_config['platforms']
-                    if not isinstance(task_platforms, list) or not all(
-                            isinstance(item, str) for item in task_platforms):
-                        return DEFAULT_PLATFORMS
-                    platforms.extend(task_platforms)
-                else:
-                    task_platform = task_config.get('platform')
-                    if isinstance(task_platform, str) and not task_platform.startswith('${'):
-                        platforms.append(task_platform)
-                    else:
-                        has_unrestricted_task = True
-            if has_unrestricted_task:
-                return DEFAULT_PLATFORMS
-        
-        return list(dict.fromkeys(platforms)) if platforms else DEFAULT_PLATFORMS
-        
-    except (yaml.YAMLError, IOError):
+    except (yaml.YAMLError, IOError, ValueError):
         return DEFAULT_PLATFORMS
 
 

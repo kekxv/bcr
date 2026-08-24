@@ -1,0 +1,56 @@
+matrix:
+  unix_platform:
+    - debian13
+    - macos_arm64
+    - ubuntu2404
+    - ubuntu2404_arm64
+  windows_platform:
+    - windows
+  bazel: [8.x, 9.x]
+
+module_bazel_deps:
+  - name: boringssl
+    version: 0.20251002.0
+  - name: openssl
+    version: 4.0.1.bcr.0
+tasks:
+  verify_targets_use_openssl:
+    name: Verify openssl build targets
+    platform: ${{ unix_platform }}
+    bazel: ${{ bazel }}
+    build_flags:
+      - '--cxxopt=-std=c++17'
+      - '--process_headers_in_dependencies'
+      - '--@boost.redis//:ssl=openssl'
+    build_targets:
+      - '@boost.redis//:boost.redis'
+  verify_targets_use_openssl_on_windows:
+    name: Verify openssl build targets
+    platform: ${{ windows_platform }}
+    bazel: ${{ bazel }}
+    build_flags:
+      - '--cxxopt=/std:c++17'
+      - '--process_headers_in_dependencies'
+      - '--@boost.redis//:ssl=openssl'
+    build_targets:
+      - '@boost.redis//:boost.redis'
+  verify_targets_use_boringssl:
+    name: Verify boringssl build targets
+    platform: ${{ unix_platform }}
+    bazel: ${{ bazel }}
+    build_flags:
+      - '--cxxopt=-std=c++17'
+      - '--process_headers_in_dependencies'
+      - '--@boost.redis//:ssl=boringssl'
+    build_targets:
+      - '@boost.redis//:boost.redis'
+  verify_targets_use_boringssl_on_windows:
+    name: Verify boringssl build targets
+    platform: ${{ windows_platform }}
+    bazel: ${{ bazel }}
+    build_flags:
+      - '--cxxopt=/std:c++17'
+      - '--process_headers_in_dependencies'
+      - '--@boost.redis//:ssl=boringssl'
+    build_targets:
+      - '@boost.redis//:boost.redis'

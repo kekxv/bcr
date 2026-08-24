@@ -26,6 +26,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      issues: write
       checks: write
     outputs:
       has_changes: ${{ steps.detect.outputs.has_changes }}
@@ -228,6 +229,70 @@ jobs:
               echo '```' >> $GITHUB_STEP_SUMMARY
             fi
           fi
+
+      - name: Comment when URL stability is the only failure
+        if: "always() && steps.validate.outcome == 'failure'"
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = '.github/presubmit-results.md';
+            if (!fs.existsSync(reportPath)) {
+              return;
+            }
+
+            const expectedMessage =
+              'GitHub archive URLs are not stable (checksum may change). Use release assets instead.';
+            const report = fs.readFileSync(reportPath, 'utf8');
+            const failuresSection = report.split('### ❌ 失败的检查\n', 2)[1] ?? '';
+            const failureEntries = failuresSection.match(/^- `/gm) ?? [];
+            const failurePattern =
+              /^- `[^`\n]+`: \*\*([^*\n]+)\*\*\n(?:  - (.*)\n)?/gm;
+            const failures = [...failuresSection.matchAll(failurePattern)].map(match => ({
+              name: match[1],
+              message: match[2] ?? '',
+            }));
+
+            if (
+              failureEntries.length !== 1 ||
+              failures.length !== 1 ||
+              failures[0].name !== 'url-stability' ||
+              failures[0].message !== expectedMessage
+            ) {
+              return;
+            }
+
+            const marker = '<!-- bcr:url-stability-guidance -->';
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const alreadyCommented = comments.some(comment =>
+              comment.user?.login === 'github-actions[bot]' &&
+              comment.body?.includes(marker)
+            );
+            if (alreadyCommented) {
+              core.notice('URL stability guidance was already posted on this PR.');
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `${marker}
+            The only failing validation is URL stability:
+
+            > ${expectedMessage}
+
+            Please replace the GitHub archive URL with a release asset. If the archive URL is intentional, comment on this PR with:
+
+            \`\`\`
+            bcr skip_check url-stability-check
+            \`\`\``,
+            });
 
       - name: Create skipped check when no changes
         if: "steps.detect.outputs.has_changes != 'true'"

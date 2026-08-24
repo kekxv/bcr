@@ -7,13 +7,15 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import yaml
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from generate_diff import code_block, get_recursive_files
 from check_platform_needed import get_presubmit_platforms
 from get_test_platforms import DEFAULT_PLATFORMS, get_platforms_from_presubmit
-from presubmit import PresubmitChecker, tasks_define_platforms, validate_public_https_url
+from presubmit import CheckResult, PresubmitChecker, tasks_define_platforms, validate_public_https_url
 from registry import resolve_within, validate_module_name, validate_version_name
 from run_bazel_tests import (
     DEFAULT_BAZEL_OUTPUT_FLAGS,
@@ -77,6 +79,26 @@ class SafePathTests(unittest.TestCase):
 
 
 class RenderingAndBazelTests(unittest.TestCase):
+    def test_presubmit_report_separates_failed_checks(self):
+        checker = PresubmitChecker()
+        checker.results = {
+            'boost.redis': {
+                '1.90.0.bcr.1': [
+                    CheckResult('url-stability', False, 'Unstable URL'),
+                    CheckResult('presubmit-yaml/matrix-platform', False, 'Missing platform'),
+                ],
+            },
+        }
+
+        report = checker.generate_report()
+
+        self.assertIn(
+            '**url-stability**\n  - Unstable URL\n'
+            '- `boost.redis@1.90.0.bcr.1`: '
+            '**presubmit-yaml/matrix-platform**\n  - Missing platform\n',
+            report,
+        )
+
     def test_code_fence_cannot_be_closed_by_content(self):
         block = code_block('before\n```\nafter', 'text')
         self.assertTrue(block[0].startswith('````text'))
@@ -169,6 +191,50 @@ class PlatformConfigTests(unittest.TestCase):
             self.assertEqual(get_presubmit_platforms(presubmit), expected)
             self.assertEqual(get_platforms_from_presubmit(presubmit), expected)
 
+    def test_custom_platform_matrix_references_are_resolved(self):
+        matrix = {
+            'unix_platform': ['debian13', 'macos_arm64', 'ubuntu2404_arm64'],
+            'windows_platform': ['windows'],
+            'bazel': ['8.x', '9.x'],
+        }
+        tasks = {
+            'verify_unix': {'platform': '${{ unix_platform }}'},
+            'verify_windows': {'platform': '${{ windows_platform }}'},
+        }
+        expected = ['debian13', 'macos_arm64', 'ubuntu2404_arm64', 'windows']
+
+        self.assertEqual(get_run_platforms(matrix, tasks), expected)
+        self.assertEqual(
+            get_task_platforms(tasks['verify_unix'], matrix),
+            matrix['unix_platform'],
+        )
+        self.assertEqual(
+            get_task_platforms({'platform': '${ unix_platform }'}, matrix),
+            matrix['unix_platform'],
+        )
+        self.assertTrue(tasks_define_platforms(tasks, matrix))
+
+        class FakeRegistry:
+            def get_presubmit(self, module_name, version):
+                return {'matrix': matrix, 'tasks': tasks}
+
+            def get_previous_version(self, module_name, version):
+                return None
+
+        checker = PresubmitChecker('.')
+        checker.registry = FakeRegistry()
+        results = checker.check_presubmit_yaml('boost.redis', '1.90.0.bcr.1')
+        self.assertFalse(any(
+            result.name == 'presubmit-yaml/matrix-platform' and not result.passed
+            for result in results
+        ))
+
+        with tempfile.TemporaryDirectory() as directory:
+            presubmit = Path(directory) / 'presubmit.yml'
+            presubmit.write_text(yaml.safe_dump({'matrix': matrix, 'tasks': tasks}))
+            self.assertEqual(get_presubmit_platforms(presubmit), expected)
+            self.assertEqual(get_platforms_from_presubmit(presubmit), expected)
+
     def test_task_platforms_must_be_a_string_list(self):
         for value in ('windows', [1]):
             with self.subTest(value=value), self.assertRaises(ValueError):
@@ -230,6 +296,25 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('${{ github.event.comment.body }}', workflow)
         allowed = workflow.split('const allowedChecks', 1)[1].split(']);', 1)[0]
         self.assertNotIn('presubmit-auto-run', allowed)
+
+    def test_skip_workflow_uses_plain_command_and_url_stability_label(self):
+        workflow = (SCRIPT_DIR.parent / 'workflows' / 'skip_check.yml').read_text()
+        self.assertIn("startsWith(github.event.comment.body, 'bcr skip_check')", workflow)
+        self.assertNotIn('@bcr', workflow)
+        self.assertIn("? 'skip-url-stability'", workflow)
+
+    def test_presubmit_comments_once_for_only_url_stability_failure(self):
+        workflow = (SCRIPT_DIR.parent / 'workflows' / 'presubmit.yml').read_text()
+        comment_step = workflow.split(
+            '- name: Comment when URL stability is the only failure', 1
+        )[1].split('- name: Create skipped check when no changes', 1)[0]
+        self.assertIn("failureEntries.length !== 1", comment_step)
+        self.assertIn("failures.length !== 1", comment_step)
+        self.assertIn("failures[0].name !== 'url-stability'", comment_step)
+        self.assertIn('GitHub archive URLs are not stable', comment_step)
+        self.assertIn('github.paginate(github.rest.issues.listComments', comment_step)
+        self.assertIn('bcr:url-stability-guidance', comment_step)
+        self.assertIn('bcr skip_check url-stability-check', comment_step)
 
     def test_bazel_job_has_no_token_environment(self):
         workflow = (SCRIPT_DIR.parent / 'workflows' / 'presubmit.yml').read_text()

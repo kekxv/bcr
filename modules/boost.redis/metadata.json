@@ -1,17 +1,18 @@
 {
-  "homepage": "https://libzip.org",
+  "homepage": "http://boost.org/libs/redis",
   "maintainers": [
     {
       "email": "caesar@kekxv.com",
       "github": "kekxv",
-      "name": "kekxv"
+      "name": "kekxv",
+      "github_user_id": 15551108
     }
   ],
   "repository": [
-    "github:nih-at/libzip"
+    "github:boostorg/redis"
   ],
   "versions": [
-    "1.11.4.bcr.3"
+    "1.90.0.bcr.1"
   ],
   "yanked_versions": {}
 }

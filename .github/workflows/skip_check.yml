@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   handle-skip-check:
-    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '@bcr skip_check')
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, 'bcr skip_check')
     runs-on: ubuntu-latest
     steps:
       - name: Validate command and add skip label
@@ -30,9 +30,9 @@ jobs:
             // Parse the event payload as data. Never interpolate comment text into
             // shell or JavaScript source code.
             const body = context.payload.comment.body;
-            const match = body.match(/^@bcr[ \t]+skip_check[ \t]+([a-z0-9-]+)[ \t]*$/);
+            const match = body.match(/^bcr[ \t]+skip_check[ \t]+([a-z0-9-]+)[ \t]*$/);
             if (!match) {
-              core.setFailed('Invalid command. Expected: @bcr skip_check <check-name>');
+              core.setFailed('Invalid command. Expected: bcr skip_check <check-name>');
               return;
             }
 
@@ -44,7 +44,9 @@ jobs:
 
             // This workflow may only add skip-* labels. In particular, it can
             // never grant the presubmit-auto-run capability.
-            const label = `skip-${check}`;
+            const label = check === 'url-stability-check'
+              ? 'skip-url-stability'
+              : `skip-${check}`;
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
