@@ -96,17 +96,7 @@ def collect_modules(registry: RegistryClient) -> list[dict[str, Any]]:
 
 def generate_registry_index(registry: RegistryClient) -> dict[str, Any]:
     """Generate the Bazel-compatible bazel_registry.json index."""
-    modules: dict[str, Any] = {}
-    for name in registry.get_all_modules():
-        metadata = registry.get_metadata(name)
-        if metadata is None:
-            continue
-        modules[name] = {
-            "versions": metadata.get("versions", []),
-            "yanked_versions": metadata.get("yanked_versions", {}),
-            "deprecated": metadata.get("deprecated") or None,
-        }
-    return {"mirrors": [], "modules": modules}
+    return {"mirrors": []}
 
 
 def generate_site_data(registry: RegistryClient, repo_name: str) -> dict[str, Any]:
