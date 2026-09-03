@@ -1,0 +1,9 @@
+{
+  "integrity": "sha256-582AvA8nI8Z89hEy796TBYUaumL7mdSyxkld1wulDj0=",
+  "strip_prefix": "webui-1fa2b91c39aa498d68c0b2365e4d6a5e7bc18e98",
+  "url": "https://github.com/webui-dev/webui/archive/1fa2b91c39aa498d68c0b2365e4d6a5e7bc18e98.tar.gz",
+  "overlay": {
+    "BUILD.bazel": "sha256-Z1Hf/3ofCWTNzpAjT38in0mKzTKcb2OM6Ox8YR1KODc=",
+    "MODULE.bazel": "sha256-C7O/i+akGc8/DSl2QK/+gX/ympSOl6/7uFaMK6UsdjE="
+  }
+}

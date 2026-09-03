@@ -1,0 +1,56 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+# Generated config header (mirrors hpdf_config.h.cmake from CMake)
+genrule(
+    name = "hpdf_config_h",
+    srcs = ["include/hpdf_config.h.cmake"],
+    outs = ["include/hpdf_config.h"],
+    cmd = """
+cat > $@ <<'HEREDOC'
+/* Define to 1 if you have the `png' library (-lpng). */
+#define LIBHPDF_HAVE_LIBPNG 1
+
+/* Define to 1 if you have the `z' library (-lz). */
+#define LIBHPDF_HAVE_ZLIB 1
+
+/* debug build */
+/* #undef LIBHPDF_DEBUG */
+
+/* debug trace enabled */
+/* #undef LIBHPDF_DEBUG_TRACE */
+HEREDOC
+""",
+)
+
+cc_library(
+    name = "hpdf",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/*.h"]) + ["src/t4.h"] + [":hpdf_config_h"],
+    copts = [],
+    defines = select({
+        "@platforms//os:windows": [
+            "_CRT_SECURE_NO_WARNINGS",
+            "_CRT_SECURE_NO_DEPRECATE",
+        ],
+        "//conditions:default": [],
+    }),
+    includes = [
+        "include",
+        "src",
+    ],
+    linkopts = select({
+        "@platforms//os:linux": ["-lm"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [
+        "@libpng",
+        "@zlib",
+    ],
+)
+
+alias(
+    name = "libharu",
+    actual = ":hpdf",
+    visibility = ["//visibility:public"],
+)

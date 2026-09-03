@@ -1,0 +1,258 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-03T03:00:10+00:00",
+  "repository": "kekxv/bcr",
+  "repository_url": "https://github.com/kekxv/bcr",
+  "registry_url": "https://kekxv.github.io/bcr",
+  "stats": {
+    "modules": 15,
+    "versions": 43,
+    "deprecated": 0
+  },
+  "recent_modules": [
+    "khttpd",
+    "cc_toolchains_linux",
+    "rules_objc",
+    "sdl3"
+  ],
+  "modules": [
+    {
+      "name": "cc_toolchains_linux",
+      "versions": [
+        "20260319.47",
+        "20260328.53",
+        "20260630.63"
+      ],
+      "latest_version": "20260630.63",
+      "homepage": "https://github.com/kekxv/cc_toolchains_linux",
+      "repository": [
+        "github:kekxv/cc_toolchains_linux"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-06-30"
+    },
+    {
+      "name": "cc_toolchains_windows",
+      "versions": [
+        "20260319",
+        "20260328.13",
+        "20260521.16"
+      ],
+      "latest_version": "20260521.16",
+      "homepage": "https://github.com/kekxv/cc_toolchains_windows",
+      "repository": [
+        "github:kekxv/cc_toolchains_windows"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-06-14"
+    },
+    {
+      "name": "clay",
+      "versions": [
+        "0.14.0"
+      ],
+      "latest_version": "0.14.0",
+      "homepage": "https://github.com/nicbarker/clay",
+      "repository": [
+        "github:nicbarker/clay"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-06-18"
+    },
+    {
+      "name": "khttpd",
+      "versions": [
+        "0.1.0",
+        "0.3.0",
+        "0.4.0",
+        "0.4.1",
+        "0.4.2",
+        "0.4.3",
+        "0.4.4",
+        "0.4.5",
+        "0.4.6",
+        "0.5.0"
+      ],
+      "latest_version": "0.5.0",
+      "homepage": "https://github.com/ClangTools/khttpd",
+      "repository": [
+        "github:ClangTools/khttpd"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-08-26"
+    },
+    {
+      "name": "libharu",
+      "versions": [
+        "2.4.6"
+      ],
+      "latest_version": "2.4.6",
+      "homepage": "https://github.com/libharu/libharu",
+      "repository": [
+        "github:libharu/libharu"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-06-14"
+    },
+    {
+      "name": "libusb",
+      "versions": [
+        "1.0.29"
+      ],
+      "latest_version": "1.0.29",
+      "homepage": "https://libusb.info/",
+      "repository": [
+        "github:libusb/libusb"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-06-14"
+    },
+    {
+      "name": "miniaudio",
+      "versions": [
+        "0.11.25"
+      ],
+      "latest_version": "0.11.25",
+      "homepage": "https://github.com/mackron/miniaudio",
+      "repository": [
+        "github:mackron/miniaudio"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-06-14"
+    },
+    {
+      "name": "quickjs-ng",
+      "versions": [
+        "0.11.0",
+        "0.11.0.bcr.1",
+        "0.13.0",
+        "0.14.0",
+        "0.15.0",
+        "0.15.1",
+        "0.15.1.bcr.1"
+      ],
+      "latest_version": "0.15.1.bcr.1",
+      "homepage": "https://github.com/quickjs-ng/quickjs/",
+      "repository": [
+        "https://github.com/quickjs-ng/quickjs/"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-06-14"
+    },
+    {
+      "name": "rules_objc",
+      "versions": [
+        "0.0.2",
+        "0.0.3"
+      ],
+      "latest_version": "0.0.3",
+      "homepage": "https://github.com/kekxv/rules_objc",
+      "repository": [
+        "github:kekxv/rules_objc"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-06-29"
+    },
+    {
+      "name": "sdl3",
+      "versions": [
+        "3.4.2.beta.1",
+        "3.4.10.beta.1"
+      ],
+      "latest_version": "3.4.10.beta.1",
+      "homepage": "https://www.libsdl.org/",
+      "repository": [
+        "github:libsdl-org/SDL"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-06-29"
+    },
+    {
+      "name": "stb",
+      "versions": [
+        "0.0.0-20260516-31c1ad3"
+      ],
+      "latest_version": "0.0.0-20260516-31c1ad3",
+      "homepage": "https://github.com/nothings/stb",
+      "repository": [
+        "github:nothings/stb"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-06-15"
+    },
+    {
+      "name": "thorvg",
+      "versions": [
+        "1.0.1.bcr.1",
+        "1.0.1.bcr.2",
+        "1.0.3",
+        "1.0.5",
+        "1.0.6",
+        "1.0.6.bcr.1"
+      ],
+      "latest_version": "1.0.6.bcr.1",
+      "homepage": "https://github.com/thorvg/thorvg",
+      "repository": [
+        "github:thorvg/thorvg"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-06-27"
+    },
+    {
+      "name": "uriparser",
+      "versions": [
+        "1.0.2",
+        "1.0.2.bcr.1"
+      ],
+      "latest_version": "1.0.2.bcr.1",
+      "homepage": "https://github.com/uriparser/uriparser",
+      "repository": [
+        "github:uriparser/uriparser"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-06-14"
+    },
+    {
+      "name": "webui",
+      "versions": [
+        "2.5.0.bcr.beta.1"
+      ],
+      "latest_version": "2.5.0.bcr.beta.1",
+      "homepage": "https://github.com/webui-dev/webui",
+      "repository": [
+        "github:webui-dev/webui"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-06-14"
+    },
+    {
+      "name": "yoga",
+      "versions": [
+        "3.2.1",
+        "3.2.1.bcr.1"
+      ],
+      "latest_version": "3.2.1.bcr.1",
+      "homepage": "https://github.com/react/yoga",
+      "repository": [
+        "github:react/yoga"
+      ],
+      "deprecated": null,
+      "yanked_versions": {},
+      "updated_at": "2026-06-28"
+    }
+  ]
+}

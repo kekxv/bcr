@@ -1,0 +1,19 @@
+{
+  "homepage": "https://github.com/nicbarker/clay",
+  "maintainers": [
+    {
+      "email": "caesar@kekxv.com",
+      "github": "kekxv",
+      "name": "kekxv",
+      "github_user_id": 15551108
+    }
+  ],
+  "repository": [
+    "github:nicbarker/clay"
+  ],
+  "versions": [
+    "0.14.0"
+  ],
+  "yanked_versions": {
+  }
+}

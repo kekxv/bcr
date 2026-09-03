@@ -1,0 +1,6 @@
+matrix:
+  platform: [ubuntu2404, macos, windows]
+  bazel: [7.x, 8.x]
+tasks:
+  verify_targets:
+    build_targets: ['@cc_toolchains_windows//...']

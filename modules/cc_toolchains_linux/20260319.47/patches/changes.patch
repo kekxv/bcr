@@ -1,0 +1,13 @@
+Index: MODULE.bazel
+===================================================================
+--- MODULE.bazel
++++ MODULE.bazel
+@@ -1,7 +1,7 @@
+ module(
+     name = "cc_toolchains_linux",
+-    version = "0.0.1",
++    version = "20260319.47",
+ )
+ 
+ bazel_dep(name = "platforms", version = "1.0.0")
+ bazel_dep(name = "bazel_skylib", version = "1.8.2")
