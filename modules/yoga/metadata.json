@@ -1,0 +1,20 @@
+{
+  "homepage": "https://github.com/react/yoga",
+  "maintainers": [
+    {
+      "email": "caesar@kekxv.com",
+      "github": "kekxv",
+      "name": "kekxv",
+      "github_user_id": 15551108
+    }
+  ],
+  "repository": [
+    "github:react/yoga"
+  ],
+  "versions": [
+    "3.2.1",
+    "3.2.1.bcr.1"
+  ],
+  "yanked_versions": {
+  }
+}

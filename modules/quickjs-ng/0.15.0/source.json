@@ -1,0 +1,9 @@
+{
+  "integrity": "sha256-1l+VH6nTR6kSpT7CwVG9Cseb9z1EV4jmdnDKG4lMZ8Q=",
+  "strip_prefix": "quickjs-0.15.0",
+  "url": "https://github.com/quickjs-ng/quickjs/archive/refs/tags/v0.15.0.tar.gz",
+  "overlay": {
+    "BUILD.bazel": "sha256-7hphbh18IkHKmAxL44RImGV/aw/lcWDZcXdU7yY5c3M=",
+    "MODULE.bazel": "sha256-Umua3jfiC9DBhW+MrTxQ13SDxuIbgWddRwtHeaHMN7A="
+  }
+}

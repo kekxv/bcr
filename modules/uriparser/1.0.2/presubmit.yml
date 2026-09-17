@@ -1,0 +1,33 @@
+matrix:
+  bazel:
+    - 8.x
+  platform:
+    - ubuntu2404
+    - macos
+    - windows
+
+tasks:
+  verify_targets:
+    name: Verify build targets
+    platform: ${ platform }
+    bazel: ${ bazel }
+    build_targets:
+      - "@uriparser//..."
+
+bcr_test_module:
+  module_path: ""
+  matrix:
+    platform:
+      - ubuntu2404
+      - macos
+      - windows
+    bazel: [ 8.x ]
+  tasks:
+    run_test_module:
+      name: Run test module
+      platform: ${{ platform }}
+      bazel: ${{ bazel }}
+      build_targets:
+        - //tests:js_test_runner
+      test_targets:
+        - //tests:js_test_runner

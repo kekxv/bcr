@@ -1,0 +1,19 @@
+{
+  "homepage": "https://github.com/mackron/miniaudio",
+  "maintainers": [
+    {
+      "email": "caesar@kekxv.com",
+      "github": "kekxv",
+      "name": "kekxv",
+      "github_user_id": 15551108
+    }
+  ],
+  "repository": [
+    "github:mackron/miniaudio"
+  ],
+  "versions": [
+    "0.11.25"
+  ],
+  "yanked_versions": {
+  }
+}

@@ -1,0 +1,500 @@
+diff --git a/yoga/algorithm/FlexLine.cpp b/yoga/algorithm/FlexLine.cpp
+index cb5c728..482e8fb 100644
+--- a/yoga/algorithm/FlexLine.cpp
++++ b/yoga/algorithm/FlexLine.cpp
+@@ -112,10 +112,10 @@ FlexLine calculateFlexLine(
+   }
+ 
+   return FlexLine{
+-      .itemsInFlow = std::move(itemsInFlow),
+-      .sizeConsumed = sizeConsumed,
+-      .numberOfAutoMargins = numberOfAutoMargins,
+-      .layout = FlexLineRunningLayout{
++      std::move(itemsInFlow),
++      sizeConsumed,
++      numberOfAutoMargins,
++      FlexLineRunningLayout{
+           totalFlexGrowFactors,
+           totalFlexShrinkScaledFactors,
+       }};
+diff --git a/yoga/config/Config.h b/yoga/config/Config.h
+index 7bcffd1..0a0e9ab 100644
+--- a/yoga/config/Config.h
++++ b/yoga/config/Config.h
+@@ -32,7 +32,7 @@ bool configUpdateInvalidatesLayout(
+ 
+ class YG_EXPORT Config : public ::YGConfig {
+  public:
+-  explicit Config(YGLogger logger) : logger_{logger} {}
++  explicit Config(YGLogger logger) : logger_{logger}, useWebDefaults_(false) {}
+ 
+   void setUseWebDefaults(bool useWebDefaults);
+   bool useWebDefaults() const;
+@@ -72,7 +72,7 @@ class YG_EXPORT Config : public ::YGConfig {
+   YGCloneNodeFunc cloneNodeCallback_{nullptr};
+   YGLogger logger_{};
+ 
+-  bool useWebDefaults_ : 1 = false;
++  bool useWebDefaults_ : 1;
+ 
+   uint32_t version_ = 0;
+   ExperimentalFeatureSet experimentalFeatures_{};
+diff --git a/yoga/enums/YogaEnums.h b/yoga/enums/YogaEnums.h
+index de44662..ecb96bf 100644
+--- a/yoga/enums/YogaEnums.h
++++ b/yoga/enums/YogaEnums.h
+@@ -7,36 +7,65 @@
+ 
+ #pragma once
+ 
+-#include <bit>
++#include <cstdint>
+ #include <iterator>
++#include <limits>
+ #include <type_traits>
+ 
+ namespace facebook::yoga {
+ 
++namespace detail {
++constexpr int32_t bitWidth(int32_t n) {
++  if (n <= 0)
++    return 0;
++  int32_t w = 0;
++  while (n > 0) {
++    n >>= 1;
++    ++w;
++  }
++  return w;
++}
++} // namespace detail
++
+ /**
+- * Concept for any enum/enum class
++ * Trait for any enum/enum class
+  */
++template <typename EnumT, typename = void>
++struct is_enumeration : std::false_type {};
++
++template <typename EnumT>
++struct is_enumeration<EnumT, typename std::enable_if<std::is_enum<EnumT>::value>::type>
++    : std::true_type {};
++
+ template <typename EnumT>
+-concept Enumeration = std::is_enum_v<EnumT>;
++inline constexpr bool is_enumeration_v = is_enumeration<EnumT>::value;
+ 
+ /**
+  * Count of ordinals in a Yoga enum which is sequential
+  */
+-template <Enumeration EnumT>
++template <typename EnumT>
+ constexpr int32_t ordinalCount();
+ 
+ /**
+- * Concept for a yoga enum which is sequential
++ * Trait for a yoga enum which is sequential (ordinalCount > 0)
+  */
+ template <typename EnumT>
+-concept HasOrdinality = (ordinalCount<EnumT>() > 0);
++struct is_sequential_enum
++    : std::integral_constant<
++          bool,
++          (ordinalCount<EnumT>() > 0)> {};
++
++template <typename EnumT>
++inline constexpr bool is_sequential_enum_v = is_sequential_enum<EnumT>::value;
+ 
+ /**
+  * Count of bits needed to represent every ordinal
+  */
+-template <HasOrdinality EnumT>
++template <
++    typename EnumT,
++    typename std::enable_if<is_sequential_enum_v<EnumT>, int>::type = 0>
+ constexpr int32_t bitCount() {
+-  return std::bit_width(
++  return detail::bitWidth(
+       static_cast<std::underlying_type_t<EnumT>>(ordinalCount<EnumT>() - 1));
+ }
+ 
+@@ -44,15 +73,20 @@ constexpr int32_t bitCount() {
+  * Polyfill of C++ 23 to_underlying()
+  * https://en.cppreference.com/w/cpp/utility/to_underlying
+  */
+-constexpr auto to_underlying(Enumeration auto e) noexcept {
+-  return static_cast<std::underlying_type_t<decltype(e)>>(e);
++template <
++    typename EnumT,
++    typename std::enable_if<is_enumeration_v<EnumT>, int>::type = 0>
++constexpr auto to_underlying(EnumT e) noexcept {
++  return static_cast<std::underlying_type_t<EnumT>>(e);
+ }
+ 
+ /**
+  * Convenience function to iterate through every value in a Yoga enum as part of
+  * a range-based for loop.
+  */
+-template <HasOrdinality EnumT>
++template <
++    typename EnumT,
++    typename std::enable_if<is_sequential_enum_v<EnumT>, int>::type = 0>
+ auto ordinals() {
+   struct Iterator {
+     EnumT e{};
+@@ -66,8 +100,12 @@ auto ordinals() {
+       return *this;
+     }
+ 
+-    bool operator==(const Iterator& other) const = default;
+-    bool operator!=(const Iterator& other) const = default;
++    bool operator==(const Iterator& other) const {
++      return e == other.e;
++    }
++    bool operator!=(const Iterator& other) const {
++      return e != other.e;
++    }
+   };
+ 
+   struct Range {
+diff --git a/yoga/node/CachedMeasurement.h b/yoga/node/CachedMeasurement.h
+index 9c76280..a58f581 100644
+--- a/yoga/node/CachedMeasurement.h
++++ b/yoga/node/CachedMeasurement.h
+@@ -48,6 +48,10 @@ struct CachedMeasurement {
+ 
+     return isEqual;
+   }
++
++  bool operator!=(CachedMeasurement measurement) const {
++    return !(*this == measurement);
++  }
+ };
+ 
+ } // namespace facebook::yoga
+diff --git a/yoga/node/LayoutResults.h b/yoga/node/LayoutResults.h
+index 9f0aeaf..6bfea01 100644
+--- a/yoga/node/LayoutResults.h
++++ b/yoga/node/LayoutResults.h
+@@ -24,6 +24,10 @@ struct LayoutResults {
+   // 98% of analyzed layouts require less than 8 entries.
+   static constexpr int32_t MaxCachedMeasurements = 8;
+ 
++  LayoutResults()
++      : direction_(Direction::Inherit),
++        hadOverflow_(false) {}
++
+   uint32_t computedFlexBasisGeneration = 0;
+   FloatOptional computedFlexBasis = {};
+ 
+@@ -108,8 +112,8 @@ struct LayoutResults {
+   }
+ 
+  private:
+-  Direction direction_ : bitCount<Direction>() = Direction::Inherit;
+-  bool hadOverflow_ : 1 = false;
++  Direction direction_ : bitCount<Direction>();
++  bool hadOverflow_ : 1;
+ 
+   std::array<float, 2> dimensions_ = {{YGUndefined, YGUndefined}};
+   std::array<float, 2> measuredDimensions_ = {{YGUndefined, YGUndefined}};
+diff --git a/yoga/node/LayoutableChildren.h b/yoga/node/LayoutableChildren.h
+index b158a6a..1e78b97 100644
+--- a/yoga/node/LayoutableChildren.h
++++ b/yoga/node/LayoutableChildren.h
+@@ -13,6 +13,14 @@
+ 
+ #include <yoga/enums/Display.h>
+ 
++#if __cplusplus >= 202002L || (defined(_MSVC_LANG) && _MSVC_LANG >= 202002L)
++#define YOGA_LIKELY [[likely]]
++#define YOGA_UNLIKELY [[unlikely]]
++#else
++#define YOGA_LIKELY
++#define YOGA_UNLIKELY
++#endif
++
+ namespace facebook::yoga {
+ 
+ class Node;
+@@ -60,7 +68,7 @@ class LayoutableChildren {
+       if (childIndex_ + 1 >= node_->getChildCount()) {
+         // if the current node has no more children, try to backtrack and
+         // visit its successor
+-        if (backtrack_.empty()) [[likely]] {
++        if (backtrack_.empty()) YOGA_LIKELY {
+           // if there are no nodes to backtrack to, the last node has been
+           // visited
+           *this = Iterator{};
+@@ -80,7 +88,7 @@ class LayoutableChildren {
+         // skip all display: contents nodes, possibly going deeper into the
+         // tree
+         if (node_->getChild(childIndex_)->style().display() ==
+-            Display::Contents) [[unlikely]] {
++            Display::Contents) YOGA_UNLIKELY {
+           skipContentsNodes();
+         }
+       }
+@@ -118,7 +126,6 @@ class LayoutableChildren {
+   };
+ 
+   explicit LayoutableChildren(const T* node) : node_(node) {
+-    static_assert(std::input_iterator<LayoutableChildren<T>::Iterator>);
+     static_assert(
+         std::is_base_of<Node, T>::value,
+         "Type parameter of LayoutableChildren must derive from yoga::Node");
+@@ -128,7 +135,7 @@ class LayoutableChildren {
+     if (node_->getChildCount() > 0) {
+       auto result = Iterator(node_, 0);
+       if (node_->getChild(0)->style().display() == Display::Contents)
+-          [[unlikely]] {
++          YOGA_UNLIKELY {
+         result.skipContentsNodes();
+       }
+       return result;
+diff --git a/yoga/node/Node.cpp b/yoga/node/Node.cpp
+index cf36ab0..ef87143 100644
+--- a/yoga/node/Node.cpp
++++ b/yoga/node/Node.cpp
+@@ -19,7 +19,13 @@ namespace facebook::yoga {
+ 
+ Node::Node() : Node{&Config::getDefault()} {}
+ 
+-Node::Node(const yoga::Config* config) : config_{config} {
++Node::Node(const yoga::Config* config)
++    : hasNewLayout_(true),
++      isReferenceBaseline_(false),
++      isDirty_(true),
++      alwaysFormsContainingBlock_(false),
++      nodeType_(NodeType::Default),
++      config_{config} {
+   yoga::assertFatal(
+       config != nullptr, "Attempting to construct Node with null config");
+ 
+@@ -71,9 +77,7 @@ YGSize Node::measure(
+         "Measure function returned an invalid dimension to Yoga: [width=%f, height=%f]",
+         size.width,
+         size.height);
+-    return {
+-        .width = maxOrDefined(0.0f, size.width),
+-        .height = maxOrDefined(0.0f, size.height)};
++    return {maxOrDefined(0.0f, size.width), maxOrDefined(0.0f, size.height)};
+   }
+ 
+   return size;
+diff --git a/yoga/node/Node.h b/yoga/node/Node.h
+index d596c56..6f193b9 100644
+--- a/yoga/node/Node.h
++++ b/yoga/node/Node.h
+@@ -306,11 +306,11 @@ class YG_EXPORT Node : public ::YGNode {
+     style_.setAlignContent(Align::Stretch);
+   }
+ 
+-  bool hasNewLayout_ : 1 = true;
+-  bool isReferenceBaseline_ : 1 = false;
+-  bool isDirty_ : 1 = true;
+-  bool alwaysFormsContainingBlock_ : 1 = false;
+-  NodeType nodeType_ : bitCount<NodeType>() = NodeType::Default;
++  bool hasNewLayout_ : 1;
++  bool isReferenceBaseline_ : 1;
++  bool isDirty_ : 1;
++  bool alwaysFormsContainingBlock_ : 1;
++  NodeType nodeType_ : bitCount<NodeType>();
+   void* context_ = nullptr;
+   YGMeasureFunc measureFunc_ = nullptr;
+   YGBaselineFunc baselineFunc_ = nullptr;
+diff --git a/yoga/numeric/Comparison.h b/yoga/numeric/Comparison.h
+index 0e23a83..85aa3df 100644
+--- a/yoga/numeric/Comparison.h
++++ b/yoga/numeric/Comparison.h
+@@ -10,40 +10,49 @@
+ #include <algorithm>
+ #include <array>
+ #include <cmath>
+-#include <concepts>
++#include <type_traits>
+ 
+ #include <yoga/Yoga.h>
+ 
+ namespace facebook::yoga {
+ 
+-constexpr bool isUndefined(std::floating_point auto value) {
++template <
++    typename T,
++    typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
++constexpr bool isUndefined(T value) {
+   return value != value;
+ }
+ 
+-constexpr bool isDefined(std::floating_point auto value) {
++template <
++    typename T,
++    typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
++constexpr bool isDefined(T value) {
+   return !isUndefined(value);
+ }
+ 
+ /**
+  * Constexpr version of `std::isinf` before C++ 23
+  */
+-constexpr bool isinf(auto value) {
+-  return value == +std::numeric_limits<decltype(value)>::infinity() ||
+-      value == -std::numeric_limits<decltype(value)>::infinity();
++template <typename T>
++constexpr bool isinf(T value) {
++  return value == +std::numeric_limits<T>::infinity() ||
++      value == -std::numeric_limits<T>::infinity();
+ }
+ 
+-constexpr auto maxOrDefined(
+-    std::floating_point auto a,
+-    std::floating_point auto b) {
++template <
++    typename T,
++    typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
++constexpr auto maxOrDefined(T a, T b) {
+   if (yoga::isDefined(a) && yoga::isDefined(b)) {
+     return std::max(a, b);
+   }
+   return yoga::isUndefined(a) ? b : a;
+ }
+ 
+-constexpr auto minOrDefined(
+-    std::floating_point auto a,
+-    std::floating_point auto b) {
++template <
++    typename T,
++    typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
++constexpr auto minOrDefined(T a, T b) {
+   if (yoga::isDefined(a) && yoga::isDefined(b)) {
+     return std::min(a, b);
+   }
+diff --git a/yoga/style/Style.h b/yoga/style/Style.h
+index 73203e6..cc8254f 100644
+--- a/yoga/style/Style.h
++++ b/yoga/style/Style.h
+@@ -42,6 +42,19 @@ class YG_EXPORT Style {
+   static constexpr float DefaultFlexShrink = 0.0f;
+   static constexpr float WebDefaultFlexShrink = 1.0f;
+ 
++  Style()
++      : direction_(Direction::Inherit),
++        flexDirection_(FlexDirection::Column),
++        justifyContent_(Justify::FlexStart),
++        alignContent_(Align::FlexStart),
++        alignItems_(Align::Stretch),
++        alignSelf_(Align::Auto),
++        positionType_(PositionType::Relative),
++        flexWrap_(Wrap::NoWrap),
++        overflow_(Overflow::Visible),
++        display_(Display::Flex),
++        boxSizing_(BoxSizing::BorderBox) {}
++
+   Direction direction() const {
+     return direction_;
+   }
+@@ -721,19 +734,17 @@ class YG_EXPORT Style {
+     fatalWithMessage("Invalid physical edge");
+   }
+ 
+-  Direction direction_ : bitCount<Direction>() = Direction::Inherit;
+-  FlexDirection flexDirection_
+-      : bitCount<FlexDirection>() = FlexDirection::Column;
+-  Justify justifyContent_ : bitCount<Justify>() = Justify::FlexStart;
+-  Align alignContent_ : bitCount<Align>() = Align::FlexStart;
+-  Align alignItems_ : bitCount<Align>() = Align::Stretch;
+-  Align alignSelf_ : bitCount<Align>() = Align::Auto;
+-  PositionType positionType_
+-      : bitCount<PositionType>() = PositionType::Relative;
+-  Wrap flexWrap_ : bitCount<Wrap>() = Wrap::NoWrap;
+-  Overflow overflow_ : bitCount<Overflow>() = Overflow::Visible;
+-  Display display_ : bitCount<Display>() = Display::Flex;
+-  BoxSizing boxSizing_ : bitCount<BoxSizing>() = BoxSizing::BorderBox;
++  Direction direction_ : bitCount<Direction>();
++  FlexDirection flexDirection_ : bitCount<FlexDirection>();
++  Justify justifyContent_ : bitCount<Justify>();
++  Align alignContent_ : bitCount<Align>();
++  Align alignItems_ : bitCount<Align>();
++  Align alignSelf_ : bitCount<Align>();
++  PositionType positionType_ : bitCount<PositionType>();
++  Wrap flexWrap_ : bitCount<Wrap>();
++  Overflow overflow_ : bitCount<Overflow>();
++  Display display_ : bitCount<Display>();
++  BoxSizing boxSizing_ : bitCount<BoxSizing>();
+ 
+   StyleValueHandle flex_{};
+   StyleValueHandle flexGrow_{};
+diff --git a/yoga/style/StyleLength.h b/yoga/style/StyleLength.h
+index 7cc42d9..f098c4f 100644
+--- a/yoga/style/StyleLength.h
++++ b/yoga/style/StyleLength.h
+@@ -89,6 +89,9 @@ class StyleLength {
+   constexpr bool operator==(const StyleLength& rhs) const {
+     return value_ == rhs.value_ && unit_ == rhs.unit_;
+   }
++  constexpr bool operator!=(const StyleLength& rhs) const {
++    return !(*this == rhs);
++  }
+ 
+  private:
+   // We intentionally do not allow direct construction using value and unit, to
+diff --git a/yoga/style/StyleValuePool.h b/yoga/style/StyleValuePool.h
+index 597eae4..c20600f 100644
+--- a/yoga/style/StyleValuePool.h
++++ b/yoga/style/StyleValuePool.h
+@@ -9,6 +9,7 @@
+ 
+ #include <cassert>
+ #include <cstdint>
++#include <cstring>
+ 
+ #include <yoga/numeric/FloatOptional.h>
+ #include <yoga/style/SmallValueBuffer.h>
+@@ -17,6 +18,15 @@
+ 
+ namespace facebook::yoga {
+ 
++namespace detail {
++template <typename To, typename From>
++constexpr To bitCast(const From& src) noexcept {
++  To dst;
++  std::memcpy(&dst, &src, sizeof(To));
++  return dst;
++}
++} // namespace detail
++
+ /**
+  * StyleValuePool allows compact storage for a sparse collection of assigned
+  * lengths and numbers. Values are referred to using StyleValueHandle. In most
+@@ -57,7 +67,7 @@ class StyleValuePool {
+           handle.type() == StyleValueHandle::Type::Point ||
+           handle.type() == StyleValueHandle::Type::Percent);
+       float value = (handle.isValueIndexed())
+-          ? std::bit_cast<float>(buffer_.get32(handle.value()))
++          ? detail::bitCast<float>(buffer_.get32(handle.value()))
+           : unpackInlineInteger(handle.value());
+ 
+       return handle.type() == StyleValueHandle::Type::Point
+@@ -72,7 +82,7 @@ class StyleValuePool {
+     } else {
+       assert(handle.type() == StyleValueHandle::Type::Number);
+       float value = (handle.isValueIndexed())
+-          ? std::bit_cast<float>(buffer_.get32(handle.value()))
++          ? detail::bitCast<float>(buffer_.get32(handle.value()))
+           : unpackInlineInteger(handle.value());
+       return FloatOptional{value};
+     }
+@@ -87,12 +97,12 @@ class StyleValuePool {
+ 
+     if (handle.isValueIndexed()) {
+       auto newIndex =
+-          buffer_.replace(handle.value(), std::bit_cast<uint32_t>(value));
++          buffer_.replace(handle.value(), detail::bitCast<uint32_t>(value));
+       handle.setValue(newIndex);
+     } else if (isIntegerPackable(value)) {
+       handle.setValue(packInlineInteger(value));
+     } else {
+-      auto newIndex = buffer_.push(std::bit_cast<uint32_t>(value));
++      auto newIndex = buffer_.push(detail::bitCast<uint32_t>(value));
+       handle.setValue(newIndex);
+       handle.setValueIsIndexed();
+     }
