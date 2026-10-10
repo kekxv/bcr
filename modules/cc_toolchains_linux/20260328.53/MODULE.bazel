@@ -1,0 +1,72 @@
+module(
+    name = "cc_toolchains_linux",
+    version = "20260328.53",
+)
+
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
+bazel_dep(name = "rules_cc", version = "0.2.14")
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "gcc-linux-x86_64",
+    build_file = "//toolchains/glibc-linux-gnu-x86_64:gcc.BUILD.bazel",
+    integrity = "sha256-hq7+2gJWgu+FkI/x0cimrps7ueq5cDMQ2jCzdNu2DWE=",
+    patches = [
+        "//toolchains/glibc-linux-gnu-x86_64:patchs/usr.lib.patch",
+    ],
+    strip_prefix = "",
+    type = "tar.bz2",
+    url = "https://github.com/ClangTools/clang-binaries/releases/download/linux-gcc12-x86_64-buildroot-2022.11.3-glibc.2.36/linux-gcc12-x86_64-buildroot-2022.11.3-gnu-glibc_2.36.tar.bz2",
+)
+
+http_archive(
+    name = "musl-linux-aarch64",
+    build_file = "//toolchains/musl-linux-aarch64:gcc.BUILD.bazel",
+    integrity = "sha256-NVQ5GproLMH+NaarDJ76NKW6xUdLbVJ0dJlyVuFIwpc=",
+    strip_prefix = "aarch64--musl--stable-2023.11-1",
+    type = "tar.bz2",
+    url = "https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--musl--stable-2023.11-1.tar.bz2",
+)
+
+http_archive(
+    name = "glibc-linux-aarch64",
+    build_file = "//toolchains/glibc-linux-aarch64:gcc.BUILD.bazel",
+    integrity = "sha256-hE3zyZUIAw7pyxFSyxglALuYFv8Blo8uGFkdUddmyec=",
+    patches = [
+        "//toolchains/glibc-linux-aarch64:patchs/usr.lib.patch",
+    ],
+    strip_prefix = "aarch64--glibc--stable-2022.08-1",
+    type = "tar.bz2",
+    url = "https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--glibc--stable-2022.08-1.tar.bz2",
+)
+
+http_archive(
+    name = "gcc-ulibc-linux-armv7l-luckfox",
+    build_file = "//toolchains/gcc-ulibc-linux-armv7l-luckfox:gcc.BUILD.bazel",
+    integrity = "sha256-9q8QMKdGtKxr8ycKRtefYqISqdzH5mG0oVLOR2f4DuI=",
+    type = "tar.gz",
+    url = "https://github.com/kekxv/luckfox-bazel/releases/download/linux-rockchip830-uclibcgnu-toolchain/arm-rockchip830-linux-uclibcgnueabihf.tar.gz",
+)
+
+http_archive(
+    name = "gcc-musl-linux-riscv64",
+    build_file = "//toolchains/gcc-musl-linux-riscv64:gcc.BUILD.bazel",
+    integrity = "sha256-7+rtUR7j3+gMQPqgAfkBWfQUhNlzmuyAV+wfJ13F/Ac=",
+    strip_prefix = "riscv64-linux-musl-x86_64",
+    type = "tar.xz",
+    url = "https://github.com/ClangTools/clang-binaries/releases/download/riscv64-linux-musl-x86_64-20240201/riscv64-linux-musl-x86_64.tar.xz",
+)
+
+http_archive(
+    name = "gcc-linux-loongarch64",
+    build_file = "//toolchains/gcc-linux-loongarch64:gcc.BUILD.bazel",
+    integrity = "sha256-+znReLZ2D0mFLoRSwJK/wXapjDFmzhO31wDj2p6Z4jc=",
+    patches = [
+        "//toolchains/gcc-linux-loongarch64:patchs/libc.so.patch",
+    ],
+    strip_prefix = "loongson-gnu-toolchain-8.3-x86_64-loongarch64-linux-gnu-rc1.6",
+    type = "tar.xz",
+    url = "https://github.com/ClangTools/clang-binaries/releases/download/loongson-gnu-toolchain-8.3-x86_64-loongarch64-linux-gnu-rc1.6/loongson-gnu-toolchain-8.3-x86_64-loongarch64-linux-gnu-rc1.6.tar.xz",
+)

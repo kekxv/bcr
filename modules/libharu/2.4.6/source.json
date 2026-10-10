@@ -1,0 +1,9 @@
+{
+  "url": "https://github.com/libharu/libharu/archive/refs/tags/v2.4.6.tar.gz",
+  "integrity": "sha256-7I8ydSDR01TOWLXSr3W2TzgM3cUiQ3wWlGOzl2CSE0g=",
+  "strip_prefix": "libharu-2.4.6",
+  "overlay": {
+    "BUILD.bazel": "sha256-M5LHVE5FIQgzTec4iEaEim+IF/fdb0W7grCOMc58Mto=",
+    "MODULE.bazel": "sha256-hp6eMKGD9h/qKt/b2WNKa4DWoDu1CNnLgJ5maO1gbm8="
+  }
+}

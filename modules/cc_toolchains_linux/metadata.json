@@ -1,0 +1,19 @@
+{
+  "homepage": "https://github.com/kekxv/cc_toolchains_linux",
+  "maintainers": [
+    {
+      "email": "caesar@kekxv.com",
+      "github": "kekxv",
+      "name": "kekxv"
+    }
+  ],
+  "repository": [
+    "github:kekxv/cc_toolchains_linux"
+  ],
+  "versions": [
+    "20260319.47",
+    "20260328.53",
+    "20260630.63"
+  ],
+  "yanked_versions": {}
+}

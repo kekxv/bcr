@@ -1,0 +1,18 @@
+{
+  "homepage": "https://github.com/nothings/stb",
+  "maintainers": [
+    {
+      "email": "stb@metadata.com",
+      "github": "hofbi",
+      "github_user_id": 10724293,
+      "name": "Markus Hofbauer"
+    }
+  ],
+  "repository": [
+    "github:nothings/stb"
+  ],
+  "versions": [
+    "0.0.0-20260516-31c1ad3"
+  ],
+  "yanked_versions": {}
+}

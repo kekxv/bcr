@@ -1,0 +1,54 @@
+matrix:
+  platform:
+    - debian11
+    - macos
+    - macos_arm64
+    - ubuntu2404
+    - windows
+  bazel: [7.x, 8.x]
+
+tasks:
+  verify_targets:
+    name: Verify build targets
+    platform: ${{ platform }}
+    bazel: ${{ bazel }}
+    build_targets:
+      - '@thorvg//:thorvg'
+
+  run_initializer_with_hermetic_toolchain:
+    name: Run initializer with hermetic toolchain
+    platforms:
+      - ubuntu2404
+    bazel: 8.x
+    module_bazel_deps:
+      - name: hermetic_cc_toolchain
+        version: "4.1.0"
+    module_bazel_extra: |
+      toolchains = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains")
+      use_repo(toolchains, "zig_sdk")
+
+      register_toolchains("@zig_sdk//toolchain:linux_amd64_gnu.2.28")
+    build_targets:
+      - '@thorvg//:thorvg'
+    test_targets:
+      - '@thorvg//:test_initializer'
+
+bcr_test_module:
+  module_path: ""
+  matrix:
+    platform:
+      - debian11
+      - macos
+      - macos_arm64
+      - ubuntu2404
+      - windows
+    bazel: [7.x, 8.x]
+  tasks:
+    run_test_module:
+      name: Run test module
+      platform: ${{ platform }}
+      bazel: ${{ bazel }}
+      build_targets:
+        - //:test_initializer
+      test_targets:
+        - //:test_initializer

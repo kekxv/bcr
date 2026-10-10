@@ -1,0 +1,17 @@
+{
+  "homepage": "https://github.com/libharu/libharu",
+  "maintainers": [
+    {
+      "email": "caesar@kekxv.com",
+      "github": "kekxv",
+      "name": "kekxv"
+    }
+  ],
+  "repository": [
+    "github:libharu/libharu"
+  ],
+  "versions": [
+    "2.4.6"
+  ],
+  "yanked_versions": {}
+}
